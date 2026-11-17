@@ -14,6 +14,37 @@ chat page is up a few minutes in; the whole notebook takes 30 to 60 minutes.
 To compare with a deployed vLLM server, add a Colab secret `REMOTE_OPENAI_BASE_URL`
 (e.g. `http://<tpu-ip>:8000/v1`) and grant the notebook access.
 
+#### Drive Colab from an agent: the Colab API and MCP endpoint
+
+Google's [Colab API and hosted MCP endpoint](https://medium.com/google-colab/the-google-colab-api-and-mcp-endpoint-for-developers-and-agents-65cfef497056)
+create runtimes, run code on them and delete them, from a script or from an agent. This repo's
+`make verify` uses the MCP endpoint to run the notebook on a fresh v5e-1. To set it up yourself:
+
+1. **A credential with the `colaboratory` scope.** The Colab CLI's login carries it:
+   `pip install google-colab-cli`, then `colab --auth oauth2 sessions` once. A plain
+   `gcloud auth application-default login` token lacks the scope and every call is refused.
+2. **A quota project** with the API enabled:
+   `gcloud services enable colaboratory.googleapis.com --project <your-project>`.
+3. **Check it:** `COLAB_QUOTA_PROJECT=<your-project> make specs` prints your Colab tier and which
+   runtimes (CPU, GPU, TPU v5e-1, v6e-1) you can create.
+4. **Add it to Claude Code:**
+
+   ```bash
+   claude mcp add-json colab --scope user '{"type": "http",
+     "url": "https://colaboratory.googleapis.com/mcp",
+     "headersHelper": "COLAB_QUOTA_PROJECT=<your-project> python3 /path/to/colab/tools/colab_token.py --header",
+     "timeout": 700000}'
+   ```
+
+   The agent then has `list_runtime_specs`, `create_runtime`, `create_session`, `execute_code`,
+   `get_runtime`, `delete_runtime` and four more. A runtime uses compute units until it is deleted.
+
+| File | Role |
+| --- | --- |
+| `tools/colab_token.py` | prints a `colaboratory`-scoped token, or the request headers for Claude Code's `headersHelper` |
+| `tools/colab_mcp.py` | a small MCP client: `python3 tools/colab_mcp.py tools`, `... call list_runtime_specs` |
+| `tools/run_on_colab.py` | runs a notebook cell by cell on a new runtime via `execute_code`, then deletes the runtime |
+
 #### Authoring
 
 The layout and tooling follow [`xbill9/torchtpu-dev/colab`](https://github.com/xbill9/torchtpu-dev/tree/main/colab).
@@ -24,6 +55,8 @@ The layout and tooling follow [`xbill9/torchtpu-dev/colab`](https://github.com/x
 make setup     # jupytext, nbformat, google-colab-cli
 make build     # src/*.py -> notebooks/*.ipynb
 make check     # fail if committed notebooks are stale
-make verify    # run on a real Colab v5e-1 via the Colab CLI; executed copy lands in runs/<date>/
+make verify    # run on a fresh Colab v5e-1 via the MCP endpoint; executed copy lands in runs/<date>/
+make verify-cli  # the same through the Colab CLI (colab exec)
+make specs     # Colab tier and the runtimes you can create
 make sessions  # list live Colab runtimes (these cost compute units)
 ```

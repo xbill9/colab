@@ -1,12 +1,14 @@
 PY ?= python3
 
-.PHONY: help setup build check verify verify-v6e1 lint clean sessions
+.PHONY: help setup build check verify verify-cli verify-v6e1 specs lint clean sessions
 
 help:
 	@echo "setup        install the authoring toolchain (jupytext, colab CLI)"
 	@echo "build        src/*.py (py:percent) -> notebooks/*.ipynb"
 	@echo "check        fail if committed notebooks are stale"
-	@echo "verify       run every notebook on a real Colab TPU and fail on any error"
+	@echo "verify       run every notebook on a fresh Colab TPU via the Colab MCP endpoint; fail on any error"
+	@echo "verify-cli   the same through the older Colab CLI (colab exec)"
+	@echo "specs        list Colab runtime specs, eligibility and the subscription tier"
 	@echo "verify-v6e1  same on v6e-1 (32 GB) -- needs an entitlement this account lacks"
 	@echo "lint         ruff over src/ and tools/"
 	@echo "sessions     list live Colab runtimes (these cost compute units)"
@@ -24,7 +26,13 @@ check:
 # Depends on check, not build: verifying a notebook that differs from its
 # source tells you nothing about the source.
 verify: check
+	$(PY) tools/run_on_colab.py
+
+verify-cli: check
 	$(PY) tools/verify_on_tpu.py
+
+specs:
+	$(PY) tools/run_on_colab.py --specs
 
 # v6e-1 is rejected on this account ("Backend rejected accelerator 'V6E1'") --
 # it needs a Colab tier we do not have. Kept because the source measurements in

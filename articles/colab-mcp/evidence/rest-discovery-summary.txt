@@ -1,0 +1,12 @@
+# Colab REST discovery document, https://colaboratory.googleapis.com/$discovery/rest?version=v1beta, fetched 2026-11-17
+rootUrl https://colaboratory.googleapis.com/ version v1beta revision 20261116
+scope https://www.googleapis.com/auth/colaboratory - Read, write, and delete your Colab resources
+scope https://www.googleapis.com/auth/colaboratory.readonly - Read-only access to your Colab resources
+method GET v1beta/{+name} -> v1beta.getSubscription
+method GET v1beta/runtimespecs -> runtimespecs.list
+method GET v1beta/{+name} -> runtimes.get
+method DELETE v1beta/{+name} -> runtimes.delete
+method GET v1beta/runtimes -> runtimes.list
+method POST v1beta/runtimes -> runtimes.create
+ConnectionInfo fields: ['url', 'token', 'expireTime']
+Subscription tiers: ['SUBSCRIPTION_TIER_UNSPECIFIED', 'SUBSCRIPTION_TIER_FREE', 'SUBSCRIPTION_TIER_PRO', 'SUBSCRIPTION_TIER_PRO_PLUS']

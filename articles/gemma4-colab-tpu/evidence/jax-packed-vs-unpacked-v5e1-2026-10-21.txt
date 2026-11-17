@@ -1,0 +1,23 @@
+# Source: ~/torchtpu-dev/colab/runs/2026-10-21/03_e2b_jax_vs_torchtpu_output.ipynb, Colab v5e-1, 2026-10-21. Same repack, tpu-jax engine; jax_w4a16 = packed, jax_bf16 = dequant_at_load=True.
+reference  compared        mean KL     max KL  same top token  max |logprob diff|
+
+engine         load s  first 64 s  warm 1 s  warm 64 s  decode tok/s  memory GB
+jax_w4a16         7.3       39.50     0.014      0.625         103.1       6.62
+jax_bf16         16.1       23.39     0.010      0.492         130.8       9.30
+torch_eager      21.2       20.98     0.203     13.531           4.7       9.87
+torch_fuse       42.8      658.66     0.127      7.268           8.8      11.91
+torch_buffer     20.0       11.57     0.167     10.113           6.3       9.83
+jax_w4a16: the engine's own timer says 104.6 tok/s
+jax_bf16: the engine's own timer says 132.6 tok/s
+jax_w4a16 / torch_fuse: 11.7x
+jax_bf16 / torch_fuse: 14.8x
+
+claim                                                  expected        today
+libtpu shared by both stacks                                yes          yes
+engines writing 64 of 64 tokens identical to JAX           most       3 of 5
+mean KL, JAX bf16 vs PyTorch eager                        small     0.001073
+  for scale: KL between two weight builds (colab-jax 02)      0.00021             
+same top token, JAX bf16 vs PyTorch eager                  100%      100.00%
+fastest decode                                              JAX     jax_bf16
+JAX 4-bit / best PyTorch decode                                        11.7x
+

@@ -1,0 +1,13 @@
+# Output of `python3 tools/run_on_colab.py --specs` (Colab MCP endpoint: get_subscription, list_runtime_specs), 2026-11-17.
+subscription: SUBSCRIPTION_TIER_FREE
+  VARIANT_CPU    NONE       SHAPE_HIGHMEM   not eligible
+  VARIANT_CPU    NONE       SHAPE_STANDARD  eligible
+  VARIANT_GPU    A100       SHAPE_HIGHMEM   not eligible
+  VARIANT_GPU    T4         SHAPE_HIGHMEM   not eligible
+  VARIANT_GPU    A100       SHAPE_STANDARD  eligible
+  VARIANT_GPU    G4         SHAPE_STANDARD  eligible
+  VARIANT_GPU    H100       SHAPE_STANDARD  not eligible
+  VARIANT_GPU    L4         SHAPE_STANDARD  eligible
+  VARIANT_GPU    T4         SHAPE_STANDARD  eligible
+  VARIANT_TPU    V5E1       SHAPE_STANDARD  eligible
+  VARIANT_TPU    V6E1       SHAPE_STANDARD  eligible

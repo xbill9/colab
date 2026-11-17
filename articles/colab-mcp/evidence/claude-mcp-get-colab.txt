@@ -1,0 +1,9 @@
+# claude mcp get colab, 2026-11-17T22:16:11Z
+colab:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: http
+  URL: https://colaboratory.googleapis.com/mcp
+  Timeout: 700000ms
+
+To remove this server, run: claude mcp remove colab -s user

@@ -1,0 +1,2 @@
+# MCP tools/call get_subscription with the Colab CLI token and no x-goog-user-project header, 2026-11-17T22:16:10Z
+ToolError: HTTP 403: {"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"Your application is authenticating by using local Application Default Credentials. The colaboratory.googleapis.com API requires a quota project, which is not set by default. To learn how to set your quota project, see https://cloud.google.com/docs/authentication/adc-troubleshooting/user-creds .","type":"text"}],"isError":tr

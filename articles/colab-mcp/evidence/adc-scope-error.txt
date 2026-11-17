@@ -1,0 +1,3 @@
+# GET /v1beta/runtimespecs with a gcloud ADC token (scopes printed first), 2026-11-17T22:16:08Z
+token scopes: email https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/sqlservice.login https://www.googleapis.com/auth/userinfo.email openid
+403 PERMISSION_DENIED Request had insufficient authentication scopes. ACCESS_TOKEN_SCOPE_INSUFFICIENT

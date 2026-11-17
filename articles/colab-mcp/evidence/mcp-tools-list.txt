@@ -1,0 +1,12 @@
+# MCP tools/list against https://colaboratory.googleapis.com/mcp with no Authorization header, 2026-11-17T22:16:08Z
+create_runtime       Creates a Colab runtime and waits until it's ready.
+create_session       Opens a Jupyter kernel session on a runtime (`runtimes/{runtime_id}`) and returns its name (`runtimes/{runtime_id}/sessions/{session_id}`).
+delete_session       Closes a session (`runtimes/{runtime_id}/sessions/{session_id}`), discarding its kernel state and aborting any `execute_code` call running in it. Files it wrote stay on the runtime, and the runtime keeps running.
+execute_code         Runs Python in a Colab runtime's Jupyter kernel. Returns stdout, stderr, the value of the last expression (`result`), and any exception (`executionError`). Only text is returned, not images or plots. Output over the size limit is truncated and flagged with `outputTruncated`.
+get_subscription     Gets the user's Colab subscription tier: free, Pro or Pro+. https://colab.research.google.com/signup compares the tiers.
+list_sessions        Lists the open sessions on a runtime (`runtimes/{runtime_id}`), including ones you didn't open, such as the user's notebooks. Use it to find a session of yours to reuse or close. Close only sessions you opened. It returns names only, not what is running in them.
+delete_runtime       Deletes a runtime (`runtimes/{runtime_id}`) and everything on it: files, sessions and their state. This can't be undone.
+get_runtime          Gets a runtime (`runtimes/{runtime_id}`), including its spec and `connectionInfo`.
+list_runtimes        Lists the user's Colab runtimes, with their specs and `connectionInfo`. Check here for a runtime to reuse before calling `create_runtime`.
+list_runtime_specs   Lists the runtime specs (variant, accelerator and shape) and whether the user is eligible for each. Call it before `create_runtime` to pick a spec.
+10 tools

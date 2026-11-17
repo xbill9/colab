@@ -1,0 +1,3 @@
+# claude mcp list, the developer-knowledge row (a googleapis.com MCP server registered for Claude Code's built-in OAuth), 2026-11-17T22:17:50Z
+plugin:google-cloud-developer:developer-knowledge: https://developerknowledge.googleapis.com/mcp (HTTP) - ✘ Failed to connect — Incompatible auth server: does not support dynamic client registration
+colab: https://colaboratory.googleapis.com/mcp (HTTP) - ✔ Connected

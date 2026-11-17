@@ -1,0 +1,20 @@
+# claude -p with only the colab MCP's read-only tools allowed, 2026-11-17T22:16:28Z
+$ claude -p "Using the colab MCP server, tell me my Colab subscription tier and which TPU runtime specs I am eligible for. Call the tools; do not guess." --allowedTools mcp__colab__get_subscription mcp__colab__list_runtime_specs mcp__colab__list_runtimes
+I called both tools; the answers below come straight from what they returned.
+
+**Subscription tier:** Free (`SUBSCRIPTION_TIER_FREE`).
+
+**TPU runtime specs:** the list has two, and you're eligible for both.
+
+| Variant | Accelerator | Shape | Eligible |
+|---|---|---|---|
+| TPU | V5E1 (v5e, 1 chip) | Standard | ✅ |
+| TPU | V6E1 (v6e, 1 chip) | Standard | ✅ |
+
+The list has no TPU spec with a high-memory shape.
+
+**The rest of the list:**
+- **Eligible:** CPU standard, plus GPU standard with A100, G4, L4 or T4.
+- **Shown without an eligibility flag:** CPU high-memory, GPU high-memory with A100 or T4, and GPU standard with H100. These probably mean "not eligible", because the service may simply leave out a false value. That's my reading of the response and I haven't confirmed it.
+
+It's odd for a free account to be eligible for an A100. The specs list says nothing about whether a machine is actually available right now; `create_runtime` would show that.
