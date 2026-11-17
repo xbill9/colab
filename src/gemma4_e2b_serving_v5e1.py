@@ -42,8 +42,8 @@
 # [`tpu-jax`](https://github.com/xbill9/tpu-jax), a Gemma 4 E2B decoder in pure JAX. It reads the
 # checkpoint, puts the weights on the chip and compiles only the shapes a request uses, so the first
 # answer arrives after one short compile. On a Colab v5e-1 on 2026-10-21 this engine loaded the repack
-# in 7 to 16 seconds and compiled its first request in 23 to 40 seconds. vLLM on the same chip took 16 to 17 minutes from TPU grant
-# to its first answer when measured on 2026-11-03 (most of it compiling), which is why vLLM appears
+# in 7 to 16 seconds and compiled its first request in 23 to 40 seconds. vLLM on the same chip took 17 minutes from TPU grant
+# to its first answer when measured on 2026-11-03, and 16 on a container restart (most of it compiling), which is why vLLM appears
 # here as an optional remote endpoint rather than as the local server.
 #
 # ### How the notebook runs
@@ -76,12 +76,15 @@
 # this notebook was written against.
 
 # %%
-# Cell 1.1: start the checkpoint download in the background
+# Cell 1.1: start the checkpoint download in the background, with a live progress bar
 import os
 import pathlib
 import subprocess
 import sys
+import threading
 import time
+
+from IPython.display import HTML, display
 
 T_START = time.perf_counter()
 STAGES = {}  # stage name -> seconds since T_START; the summary at the end reads this
@@ -90,6 +93,17 @@ MODEL_ID = "xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text"
 MODEL_REV = "315aec06cff196fd6479aa2669bf9379b0d0268a"
 WORK = pathlib.Path("/content" if os.path.isdir("/content") else os.path.expanduser("~/gemma4-colab"))
 WORK.mkdir(parents=True, exist_ok=True)
+
+# What to expect: the size comes from the Hub, the time from the runs this notebook was tested with.
+from huggingface_hub import HfApi
+
+files = HfApi().model_info(MODEL_ID, revision=MODEL_REV, files_metadata=True).siblings
+TOTAL_BYTES = sum(f.size or 0 for f in files)
+print(f"model:    {MODEL_ID}")
+print(f"revision: {MODEL_REV[:8]}, {len(files)} files, {TOTAL_BYTES / 1e9:.2f} GB")
+print("estimate: about a minute. On a Colab v5e-1 on 2026-11-17 the download finished 63 and 66 s")
+print("          after this cell started. The bar below measures this runtime's own rate.")
+print("          The next cells run while it downloads; there is no need to wait here.\n", flush=True)
 
 DOWNLOAD = """
 import sys
@@ -103,7 +117,62 @@ download = subprocess.Popen(
     stderr=download_log,
     text=True,
 )
-print(f"downloading {MODEL_ID} @ {MODEL_REV[:8]} in the background (pid {download.pid})")
+
+
+def bytes_received():
+    """Bytes this VM has received on its network interfaces, from /proc/net/dev."""
+    total = 0
+    for line in open("/proc/net/dev").read().splitlines()[2:]:
+        name, data = line.split(":", 1)
+        if name.strip() != "lo":
+            total += int(data.split()[0])
+    return total
+
+
+def bar(frac, text):
+    return HTML(
+        f'<progress value="{frac * 100:.1f}" max="100" style="width:55%;height:18px"></progress>'
+        f'&nbsp;<code style="font-size:13px">{text}</code>'
+    )
+
+
+DL = {}  # filled by the watcher: "dir", "seconds", "error"
+
+
+def watch_download(handle):
+    """Update the bar once a second from network bytes, then collect the download's result.
+
+    Progress is read from bytes received rather than from files in the cache, because the
+    downloader may write each file only when it is complete. Other traffic in the meantime
+    (pip, git) counts too, so the bar is capped at 99% until the download process exits.
+    """
+    rx0, t0 = bytes_received(), time.perf_counter()
+    while download.poll() is None:
+        got, el = bytes_received() - rx0, time.perf_counter() - t0
+        rate = got / el if el > 0 else 0
+        if rate < 1e6:
+            left = "measuring the rate"
+        elif got < TOTAL_BYTES:
+            left = f"about {(TOTAL_BYTES - got) / rate:.0f} s left"
+        else:
+            left = "finishing"
+        handle.update(bar(min(got / TOTAL_BYTES, 0.99),
+                          f"{got / 1e9:5.2f} of {TOTAL_BYTES / 1e9:.2f} GB  {rate / 1e6:5.0f} MB/s  {left}"))  # fmt: skip
+        time.sleep(1)
+    DL["seconds"] = time.perf_counter() - t0
+    out = download.stdout.read()
+    download_log.close()
+    if download.returncode == 0:
+        DL["dir"] = pathlib.Path(out.strip().splitlines()[-1])
+        handle.update(bar(1.0, f"downloaded {TOTAL_BYTES / 1e9:.2f} GB in {DL['seconds']:.0f} s"))
+    else:
+        DL["error"] = (WORK / "download.log").read_text()[-2000:]
+        handle.update(bar(0, "download failed: see download.log"))
+
+
+progress = display(bar(0, "starting"), display_id=True)
+DOWNLOAD_THREAD = threading.Thread(target=watch_download, args=(progress,), daemon=True)
+DOWNLOAD_THREAD.start()
 
 # %%
 # Cell 1.2: the chip, the host and the software versions
@@ -199,9 +268,9 @@ del a, b, x
 # 2. **One compile.** XLA compiles a program for each request shape. One short request compiles the
 #    shape most chat turns use. Other shapes (long prompts, long answers) compile the first time
 #    they are used, and the samples below show that cost where it happens.
-# 3. **Server and chat page.** An OpenAI-compatible HTTP server over the engine, and the chat page
-#    from the [`tpu-vllm-v5e1-2b`](https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b)
-#    rig, which shows what is running and lets you chat in the browser.
+# 3. **Server and chat page.** An OpenAI-compatible HTTP server over the engine, and this repo's
+#    [`ui/chat_ui.py`](https://github.com/xbill9/colab/blob/main/ui/chat_ui.py), a chat page that
+#    shows what is running and lets you chat in the browser.
 
 # %%
 # Cell 2.1: the engine, pinned, and the checkpoint on the chip
@@ -210,22 +279,25 @@ import json
 
 missing = [p for p in ("safetensors", "tokenizers", "openai") if importlib.util.find_spec(p) is None]
 if missing:
+    print(f"installing {', '.join(missing)} ...", flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing], check=True)
 
 TPU_JAX_COMMIT = "4b9f8e94619f1995206617e07e3c4ac62685d47b"
 ENGINE_DIR = WORK / "tpu-jax"
 if not (ENGINE_DIR / ".git").exists():
+    print("cloning the tpu-jax engine ...", flush=True)
     subprocess.run(["git", "clone", "-q", "https://github.com/xbill9/tpu-jax", str(ENGINE_DIR)], check=True)
 subprocess.run(["git", "-C", str(ENGINE_DIR), "checkout", "-q", TPU_JAX_COMMIT], check=True)
 sys.path.insert(0, str(ENGINE_DIR))
 from jax_engine import JaxGemmaEngine  # noqa: E402
 
 t0 = time.perf_counter()
-out, _ = download.communicate()
-download_log.close()
-if download.returncode != 0:
-    raise RuntimeError(f"download failed:\n{(WORK / 'download.log').read_text()[-2000:]}")
-MODEL_DIR = pathlib.Path(out.strip().splitlines()[-1])
+if DOWNLOAD_THREAD.is_alive():
+    print("waiting for the checkpoint download (progress bar in cell 1.1) ...", flush=True)
+DOWNLOAD_THREAD.join()
+if "error" in DL:
+    raise RuntimeError(f"download failed:\n{DL['error']}")
+MODEL_DIR = DL["dir"]
 size = sum(f.stat().st_size for f in MODEL_DIR.glob("*.safetensors"))
 STAGES["download finished"] = time.perf_counter() - T_START
 print(
@@ -244,6 +316,7 @@ EOS_IDS = GEN_CFG["eos_token_id"]
 MAX_MODEL_LEN = 4096
 DEQUANT_AT_LOAD = True  # False keeps the weights packed in HBM: less memory, slower decode
 
+print("loading the weights onto the chip; this took 17 s on a Colab v5e-1 on 2026-11-17 ...", flush=True)
 t0 = time.perf_counter()
 ENGINE = JaxGemmaEngine(MODEL_ID, quant_mode="w4a16", max_model_len=MAX_MODEL_LEN, dequant_at_load=DEQUANT_AT_LOAD)
 ENGINE.load(local_dir=str(MODEL_DIR))
@@ -413,6 +486,7 @@ def run_request(req, emit=None, ids=None):
 
 
 # One short request compiles the shape most chat turns use (prompt bucket 64, answer budget 512).
+print("compiling the first request shape; this took 24 s on a Colab v5e-1 on 2026-11-17 ...", flush=True)
 # The other common chat shapes compile in the background once the server is up (cell 2.5).
 t0 = time.perf_counter()
 warm = run_request({"messages": [{"role": "user", "content": "Say hello."}], "max_tokens": 16, "temperature": 0})
@@ -423,8 +497,8 @@ print(f"warm-up: {warm['content']!r} in {time.perf_counter() - t0:.0f} s, includ
 # %% [markdown]
 # ### The server
 #
-# A standard-library HTTP server in a background thread, shaped like vLLM's so that vLLM clients
-# and the chat page work against it unchanged:
+# A standard-library HTTP server in a background thread. Its routes follow the OpenAI API and
+# vLLM's server, so any OpenAI client works against it:
 #
 # | Route | Returns |
 # | --- | --- |
@@ -434,8 +508,8 @@ print(f"warm-up: {warm['content']!r} in {time.perf_counter() - t0:.0f} s, includ
 # | `GET /metrics` | Prometheus counters: requests running and waiting, prompt and generated tokens |
 # | `POST /v1/chat/completions` | a chat completion, streamed as server-sent events or returned whole |
 #
-# The counters use vLLM's metric names (`vllm:num_requests_running` and so on) so that the chat page,
-# written for vLLM, reads them without changes.
+# The counters are named `tpu_jax:num_requests_running` and so on. The chat page reads these, and
+# vLLM's names as well, so it can also be pointed at a vLLM server.
 
 # %%
 # Cell 2.3: the OpenAI-compatible server on 127.0.0.1:8000
@@ -470,7 +544,7 @@ class OpenAIHandler(http.server.BaseHTTPRequestHandler):
             with COUNTERS_LOCK:
                 c = dict(COUNTERS)
             body = "".join(
-                f'vllm:{name}{{model_name="{MODEL_ID}"}} {value}\n'
+                f'tpu_jax:{name}{{model_name="{MODEL_ID}"}} {value}\n'
                 for name, value in (
                     ("num_requests_running", c["running"]),
                     ("num_requests_waiting", c["waiting"]),
@@ -582,18 +656,15 @@ BASE_URL = f"http://127.0.0.1:{PORT}/v1"
 print(f"OpenAI-compatible server on {BASE_URL}")
 
 # %%
-# Cell 2.4: the chat page from the tpu-vllm-v5e1-2b rig, pointed at this server
+# Cell 2.4: this repo's chat page, ui/chat_ui.py, pointed at the server above
 import urllib.request
 
-CHAT_UI_COMMIT = "cc99b0f5000fdee92ce622411f6bfae75d43092c"
 UI_DIR = WORK / "chat_ui"
 UI_DIR.mkdir(exist_ok=True)
-urllib.request.urlretrieve(
-    f"https://raw.githubusercontent.com/xbill9/tpu-inference/{CHAT_UI_COMMIT}/tpu-vllm-v5e1-2b/chat_ui.py",
-    UI_DIR / "chat_ui.py",
-)
-# The page's "what is running" panel reads these keys from a tpu.env beside it.
-(UI_DIR / "tpu.env").write_text(
+print("starting the chat page ...", flush=True)
+urllib.request.urlretrieve("https://raw.githubusercontent.com/xbill9/colab/main/ui/chat_ui.py", UI_DIR / "chat_ui.py")
+# The page's "what is running" panel reads these keys from a serving.env beside it.
+(UI_DIR / "serving.env").write_text(
     f"MODEL_NAME={MODEL_ID}\nACCELERATOR_TYPE=Colab {dev.device_kind} x{len(devices)}\nTENSOR_PARALLEL_SIZE=1\n"
 )
 UI_PORT = 8765
@@ -666,7 +737,8 @@ def warm_shapes():
 
 WARM_THREAD = threading.Thread(target=warm_shapes, daemon=True)
 WARM_THREAD.start()
-print(f"compiling {len(WARM_SHAPES)} chat shapes in the background; the chat page stays usable")
+print(f"compiling {len(WARM_SHAPES)} chat shapes in the background, about 3 minutes (178 s on 2026-11-17).")
+print("The chat page stays usable meanwhile: a message waits for at most the one compile in progress.")
 
 # %% [markdown]
 # ## 3. Samples through the OpenAI client
@@ -689,6 +761,8 @@ print(f"compiling {len(WARM_SHAPES)} chat shapes in the background; the chat pag
 from openai import OpenAI
 
 t0 = time.perf_counter()
+if WARM_THREAD.is_alive():
+    print("waiting for the background compiles to finish, so no timing below includes one ...", flush=True)
 WARM_THREAD.join()
 STAGES["chat shapes compiled"] = time.perf_counter() - T_START
 print(f"background compiles (waited {time.perf_counter() - t0:.0f} s for them here):")
@@ -997,6 +1071,7 @@ LLAMA_TAG = "b12061"
 GGUF_REPO, GGUF_REV = "xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf", "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
 GGUF_FILE = "gemma-4-E2B-it-q4_0-exact.gguf"
 
+print("downloading llama.cpp (about 23 MB) and the GGUF (2.62 GB); this took 27 s on 2026-11-17 ...", flush=True)
 t_cpu0 = time.perf_counter()
 tgz = WORK / f"llama-{LLAMA_TAG}.tar.gz"
 if not tgz.exists():
