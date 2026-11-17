@@ -397,4 +397,4 @@ The strategy for using MCP for hosted Colab runtimes was validated with an incre
 - MCP reference: https://developers.google.com/colab/api/reference/mcp
 - REST reference: https://developers.google.com/colab/api/reference/rest
 - Colab CLI: https://github.com/googlecolab/google-colab-cli
-- The notebook it runs: https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_serving_v5e1.ipynb
+- The notebook it runs: https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb

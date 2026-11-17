@@ -66,7 +66,18 @@ def load_config() -> dict:
 
 
 def build_one(source: pathlib.Path, cfg: dict) -> nbformat.NotebookNode:
-    nb = jupytext.read(source, fmt="py:percent")
+    """One notebook from src/<name>.py, or from the `parts` notebooks.json lists for it, in order.
+
+    Parts let two notebooks share cells without two copies to keep in step: the basic and the
+    advanced notebook both include src/parts/serve.py.
+    """
+    parts = cfg["notebooks"][source.name].get("parts")
+    if parts:
+        nb = jupytext.read(SRC / parts[0], fmt="py:percent")
+        for part in parts[1:]:
+            nb.cells += jupytext.read(SRC / part, fmt="py:percent").cells
+    else:
+        nb = jupytext.read(source, fmt="py:percent")
     name = source.stem + ".ipynb"
 
     header = [
@@ -112,8 +123,9 @@ def main() -> int:
 
     for source_name in cfg["notebooks"]:
         source = SRC / source_name
-        if not source.exists():
-            print(f"missing source: {source}", file=sys.stderr)
+        missing = [p for p in cfg["notebooks"][source_name].get("parts", [source_name]) if not (SRC / p).exists()]
+        if missing:
+            print(f"missing source: {', '.join(missing)}", file=sys.stderr)
             return 1
         nb = build_one(source, cfg)
         rendered = nbformat.writes(nb, version=4) + "\n"

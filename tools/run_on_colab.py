@@ -7,7 +7,7 @@ written to `runs/<date>/<stem>_mcp_output.ipynb` and scanned the same way as `ve
 drives the older Colab CLI instead.
 
     python3 tools/run_on_colab.py                          # every notebook in notebooks.json
-    python3 tools/run_on_colab.py gemma4_e2b_serving_v5e1
+    python3 tools/run_on_colab.py gemma4_e2b_basic_v5e1
     python3 tools/run_on_colab.py --specs                  # list runtime specs and eligibility, then stop
     python3 tools/run_on_colab.py --keep ...               # leave the runtime up afterwards
 

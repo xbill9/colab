@@ -48,9 +48,9 @@ Google's W4A16 export re-rounds every group of 32 weights onto a new grid. Serve
 
 #### Step 1 — Open the Notebook
 
-Open [`gemma4_e2b_serving_v5e1.ipynb`](https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_serving_v5e1.ipynb) in Colab. Pick **Runtime → Change runtime type → v5e-1 TPU**, then **Runtime → Run all**.
+Two notebooks share the same first two sections. [`gemma4_e2b_basic_v5e1`](https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb) stops once the model is served and the chat page is up. [`gemma4_e2b_advanced_v5e1`](https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb) continues through every step below. Open one in Colab, pick **Runtime → Change runtime type → v5e-1 TPU**, then **Runtime → Run all**.
 
-The notebook is built from a jupytext source, `src/gemma4_e2b_serving_v5e1.py`, and every version in the repo was executed end to end on a real v5e-1 before it was committed. The executed copy is in `runs/2026-11-17/`.
+Both are built from jupytext sources in `src/parts/`, so the shared cells exist once. Executed copies from real v5e-1 runs are in `runs/2026-11-17/`.
 
 ---
 
@@ -197,7 +197,7 @@ A request for 16 tokens and one for 500 share one compiled program. Every respon
 
 #### Step 6 — The Chat Page
 
-The chat page is `chat_ui.py` from the [`tpu-vllm-v5e1-2b`](https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b) rig, written for vLLM. It runs unchanged against this server, because the routes and the metric names match. The notebook starts it and shows it in the cell output through Colab's port proxy:
+The chat page is the repository's [`ui/chat_ui.py`](https://github.com/xbill9/colab/blob/main/ui/chat_ui.py), adapted from the [`tpu-vllm-v5e1-2b`](https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b) rig's page. It is a small standard-library proxy that serves the page and forwards `/v1/*` to the server, and it reads the server's `tpu_jax:` counters, or vLLM's when pointed at a vLLM server. The notebook starts it and shows it in the cell output through Colab's port proxy:
 
 ```python
 output.serve_kernel_port_as_iframe(UI_PORT, height=720)
@@ -410,7 +410,7 @@ greedy decode, 256 tokens: TPU 124.6 tok/s, CPU 4.0 tok/s (31.2x)
 
 #### So, Which One?
 
-For a live demo on a Colab TPU, serve with `tpu-jax`: chatting in under two minutes, 123.7 to 124.6 tokens per second, and a vLLM-shaped API that existing clients and the rig's chat page use unchanged.
+For a live demo on a Colab TPU, serve with `tpu-jax`: chatting in under two minutes, 123.7 to 124.6 tokens per second, an OpenAI-compatible API that existing clients use unchanged, and a chat page embedded in the notebook.
 
 For many users at once, deploy vLLM, which batches requests, and point section 4 at it. This engine serves one request at a time.
 
@@ -427,7 +427,7 @@ The goal of this article was to serve Gemma 4 E2B on a hosted Colab TPU quickly 
 - 🟢 Thinking on uses 857 tokens against 391, returned as `reasoning_content`
 - 🟢 Seeds repeat exactly; top-k 64 costs about 4 percent
 - 🟢 Stop sequences end cleanly; over-limit prompts get an HTTP 400 and the server keeps answering
-- 🟢 The vLLM rig's chat page works unchanged
+- 🟢 A chat page embedded in the notebook shows what is running and each reply's speed
 - ⚠️ One request at a time; the context limit is 4,096 tokens
 - ⚠️ A new prompt size compiles on first use, 23 to 51 seconds
 - ❌ llama.cpp has no TPU backend: 4.0 tokens per second on the host CPU, 31.2x slower
@@ -441,7 +441,9 @@ The strategy for serving Gemma 4 on a hosted Colab TPU was validated with an inc
 #### References
 
 - Repository: https://github.com/xbill9/colab
-- Notebook: https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_serving_v5e1.ipynb
+- Basic notebook: https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb
+- Advanced notebook: https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb
+- Chat page: https://github.com/xbill9/colab/blob/main/ui/chat_ui.py
 - Executed run: https://github.com/xbill9/colab/tree/main/runs/2026-11-17
 - Repack: https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text
 - Exact GGUF: https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf

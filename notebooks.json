@@ -2,10 +2,17 @@
   "repo": "xbill9/colab",
   "branch": "main",
   "notebooks": {
-    "gemma4_e2b_serving_v5e1.py": {
-      "title": "Gemma 4 E2B on a Colab v5e-1: the QAT repack served, with thinking on and off",
+    "gemma4_e2b_basic_v5e1.py": {
+      "title": "Gemma 4 E2B on a Colab v5e-1: chat with the QAT repack in two minutes",
       "accelerator": "TPU",
-      "tpu": "v5e1"
+      "tpu": "v5e1",
+      "parts": ["parts/intro_basic.py", "parts/serve.py", "parts/outro_basic.py"]
+    },
+    "gemma4_e2b_advanced_v5e1.py": {
+      "title": "Gemma 4 E2B on a Colab v5e-1, advanced: the QAT repack served, with thinking on and off",
+      "accelerator": "TPU",
+      "tpu": "v5e1",
+      "parts": ["parts/intro_advanced.py", "parts/serve.py", "parts/samples.py"]
     }
   },
   "authors": [

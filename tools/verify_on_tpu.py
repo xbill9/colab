@@ -25,7 +25,7 @@ compute units.
 
 Usage:
     python3 tools/verify_on_tpu.py                 # all notebooks, each on its own runtime
-    python3 tools/verify_on_tpu.py gemma4_e2b_serving_v5e1
+    python3 tools/verify_on_tpu.py gemma4_e2b_basic_v5e1
     python3 tools/verify_on_tpu.py --tpu v6e1      # override the accelerator
     python3 tools/verify_on_tpu.py --keep          # leave the runtime up to poke at
     python3 tools/verify_on_tpu.py --auth oauth2   # fall back to the browser flow

@@ -26,6 +26,10 @@ ignore = ["E501"]
 # it needs it, is correct for a tutorial -- the reader meets `import statistics`
 # next to the code that uses it, not in a preamble fifty cells earlier.
 "src/*.py" = ["E402"]
+"src/parts/*.py" = ["E402"]
+# Parts run after src/parts/serve.py in the same kernel, so they use names it defines.
+"src/parts/samples.py" = ["E402", "F821"]
+"src/parts/outro_basic.py" = ["E402", "F821"]
 
 [format]
 quote-style = "double"
