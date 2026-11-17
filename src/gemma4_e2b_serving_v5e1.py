@@ -1052,13 +1052,16 @@ print(
 LLAMA_START = {"files_s": t_cpu_files, "launch_to_healthy_s": t_llama_ready, "first_answer_s": first["total_s"]}
 
 # %%
-# Cell 5.2: the same requests on the CPU
+# Cell 5.2: the same requests on the CPU -- thinking off (about two minutes at CPU speed)
 q = "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?"
-print("== thinking off ==")
-ask(q, cli=cpu, model=cpu_model, temperature=0, max_tokens=512, label="llama.cpp CPU: thinking off")
-print("\n== thinking on ==")
-ask(q, cli=cpu, model=cpu_model, thinking=True, temperature=0, max_tokens=2048, label="llama.cpp CPU: thinking on")
-print("\n== decode speed, 256 tokens ==")
+_ = ask(q, cli=cpu, model=cpu_model, temperature=0, max_tokens=512, label="llama.cpp CPU: thinking off")
+
+# %%
+# Cell 5.3: thinking on (about four minutes at CPU speed)
+_ = ask(q, cli=cpu, model=cpu_model, thinking=True, temperature=0, max_tokens=2048, label="llama.cpp CPU: thinking on")
+
+# %%
+# Cell 5.4: decode speed, 256 tokens
 _ = ask("Describe the water cycle in about 150 words.", cli=cpu, model=cpu_model, temperature=0, max_tokens=256,
     label="llama.cpp CPU: greedy 256")  # fmt: skip
 

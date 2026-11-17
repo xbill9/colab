@@ -36,6 +36,12 @@ OUT = ROOT / "notebooks"
 RUNS = ROOT / "runs"
 CONFIG = ROOT / "notebooks.json"
 
+# MEASURED 2026-11-17 with tools/check_long_call.py on a CPU runtime: an execute_code call's stream
+# closes after 300 s (the tool description says 600), the kernel is interrupted at that moment, and
+# the documented reattach (same session and executionId) returns KeyboardInterrupt. So every cell
+# must finish inside 300 s; a notebook with a longer cell has to be split.
+CALL_LIMIT_S = 300
+
 
 def spec_matches(key: dict, want: str) -> bool:
     """`want` is notebooks.json's form, e.g. "v5e1"; the API spells accelerators its own way."""
@@ -101,6 +107,9 @@ def run(stem: str, tpu: str, keep: bool) -> bool:
             if res.get("executionError"):
                 failed_at = i
                 print(f"        {res['executionError'].get('name')}: {res['executionError'].get('value')}", flush=True)
+                if res["executionError"].get("name") == "KeyboardInterrupt" and time.perf_counter() - t >= CALL_LIMIT_S:
+                    print(f"        the call outlived the endpoint's {CALL_LIMIT_S} s stream, which interrupts the "
+                          "kernel; split this cell", flush=True)  # fmt: skip
                 break
     except Exception as e:  # keep the partial executed copy; the runtime is still deleted below
         crash = f"{type(e).__name__}: {e}"

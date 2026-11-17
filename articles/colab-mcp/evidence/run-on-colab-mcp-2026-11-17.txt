@@ -1,0 +1,65 @@
+# COLAB_QUOTA_PROJECT=glitnir-autocloud python3 tools/run_on_colab.py, 2026-11-17 (make verify)
+
+=== gemma4_e2b_serving_v5e1 on {'accelerator': 'V5E1', 'shape': 'SHAPE_STANDARD', 'variant': 'VARIANT_TPU'} ===
+  runtime runtimes/r-508e423c-84f3-4398-9cc3-44216293a093 ready in 4 s
+  [1/26] # Cell 1.1: start the checkpoint download in the background
+        1 s
+  [2/26] # Cell 1.2: the chip, the host and the software versions
+        8 s
+  [3/26] # Cell 1.3: what the chip does on two simple kernels: a bf16 matmul an
+        2 s
+  [4/26] # Cell 2.1: the engine, pinned, and the checkpoint on the chip
+        85 s
+  [5/26] # Cell 2.2: the request path: template, budget, generation, reasoning 
+        25 s
+  [6/26] # Cell 2.3: the OpenAI-compatible server on 127.0.0.1:8000
+        1 s
+  [7/26] # Cell 2.4: the chat page from the tpu-vllm-v5e1-2b rig, pointed at th
+        2 s
+  [8/26] # Cell 2.5: compile the common chat shapes in the background
+        1 s
+  [9/26] # Cell 3.1: the client and the measuring helper
+        176 s
+  [10/26] # Cell 3.2: thinking off, greedy
+        4 s
+  [11/26] # Cell 3.3: thinking on, greedy
+        8 s
+  [12/26] # Cell 3.4: same seed twice, then two other seeds
+        6 s
+  [13/26] # Cell 3.5: what top-k costs per token on this engine
+        6 s
+  [14/26] # Cell 3.6: a token limit, then a stop sequence
+        8 s
+  [15/26] # Cell 3.7: a system prompt and two turns
+        5 s
+  [16/26] # Cell 3.8: JSON by instruction, then parsed
+        1 s
+  [17/26] # Cell 3.9: first-token time against prompt length
+        159 s
+  [18/26] # Cell 3.10: a prompt over the limit is refused with a clear error, an
+        1 s
+  [19/26] # Cell 3.11: the server's counters
+        1 s
+  [20/26] # Cell 4.1: the same calls against a remote endpoint, if one is config
+        11 s
+  [21/26] # Cell 5.1: download llama.cpp and the GGUF, start llama-server, time 
+        34 s
+  [22/26] # Cell 5.2: the same requests on the CPU -- thinking off (about two mi
+        94 s
+  [23/26] # Cell 5.3: thinking on (about four minutes at CPU speed)
+        211 s
+  [24/26] # Cell 5.4: decode speed, 256 tokens
+        42 s
+  [25/26] # Cell 6.1: start-up and per-request results
+        5 s
+  [26/26] # Cell 7.1: stop the servers and free the chip
+        2 s
+  runtime runtimes/r-508e423c-84f3-4398-9cc3-44216293a093 deleted
+  total 901 s from create_runtime to delete_runtime
+OK: gemma4_e2b_serving_v5e1 ran clean on v5e1 -> runs/2026-11-17/gemma4_e2b_serving_v5e1_mcp_output.ipynb
+
+1/1 notebooks verified
+exit=0
+
+# then: python3 tools/colab_mcp.py call list_runtimes
+{}

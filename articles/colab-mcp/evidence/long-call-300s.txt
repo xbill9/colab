@@ -1,0 +1,8 @@
+# python3 tools/check_long_call.py 420 -- one execute_code call printing every 30 s, CPU runtime, 2026-11-17
+runtime runtimes/r-5ca080a5-d5d4-4b68-bb74-f76f2c1aeb3c (NONE, SHAPE_STANDARD)
+call 1: stream dropped after 300 s (ChunkedEncodingError)
+call 2: returned after 2 s
+  stdout: ['30', 's', '60', 's', '90', 's', '120', 's', '150', 's', '180', 's', '210', 's', '240', 's', '270', 's', '300', 's']
+  result: None  error: KeyboardInterrupt
+runtime runtimes/r-5ca080a5-d5d4-4b68-bb74-f76f2c1aeb3c deleted
+exit=0

@@ -92,8 +92,9 @@ class ColabMCP:
                 print(f"  {name}: {str(e)[:80]} -- reattaching ({attempt})", file=sys.stderr, flush=True)
             except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError,
                     requests.exceptions.ChunkedEncodingError) as e:  # fmt: skip
-                # The stream dropped before the result arrived. The work goes on server-side, and the
-                # identical call reattaches to it (same requestId, or same session and executionId).
+                # The stream dropped before the result arrived. Repeat the identical call, as the endpoint
+                # documents. MEASURED 2026-11-17: for execute_code the stream drops at 300 s and the kernel
+                # is interrupted then, so the reattach returns KeyboardInterrupt rather than the result.
                 if attempt == attempts:
                     raise
                 print(f"  {name}: {type(e).__name__} -- reattaching ({attempt})", file=sys.stderr, flush=True)
