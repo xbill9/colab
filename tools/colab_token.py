@@ -9,7 +9,8 @@ ACCESS_TOKEN_SCOPE_INSUFFICIENT. Sign in once with:
     colab --auth oauth2 sessions
 
 The endpoint also needs a quota project: a Google Cloud project with colaboratory.googleapis.com
-enabled, sent as `x-goog-user-project`. Set it with COLAB_QUOTA_PROJECT:
+enabled, sent as `x-goog-user-project`. It is COLAB_QUOTA_PROJECT when set, else the active gcloud
+project (`gcloud config get-value project`):
 
     gcloud services enable colaboratory.googleapis.com --project <your-project>
     export COLAB_QUOTA_PROJECT=<your-project>
@@ -32,10 +33,23 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
 SCOPE = "https://www.googleapis.com/auth/colaboratory"
-QUOTA_PROJECT = os.environ.get("COLAB_QUOTA_PROJECT", "")
+
+
+def quota_project() -> str:
+    """COLAB_QUOTA_PROJECT, else the active gcloud project, else none."""
+    if os.environ.get("COLAB_QUOTA_PROJECT"):
+        return os.environ["COLAB_QUOTA_PROJECT"]
+    try:
+        out = subprocess.run(["gcloud", "config", "get-value", "project"], capture_output=True, text=True, timeout=20)
+        return out.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
 TOKEN_FILE = pathlib.Path(os.environ.get("COLAB_CLI_TOKEN", "~/.config/colab-cli/token.json")).expanduser()
 
 
@@ -57,10 +71,10 @@ def access_token() -> str:
 
 
 def headers() -> dict:
-    """Authorization plus, when COLAB_QUOTA_PROJECT is set, the quota project the endpoint requires."""
+    """Authorization plus the quota project the endpoint requires."""
     h = {"Authorization": f"Bearer {access_token()}"}
-    if QUOTA_PROJECT:
-        h["x-goog-user-project"] = QUOTA_PROJECT
+    if project := quota_project():
+        h["x-goog-user-project"] = project
     return h
 
 

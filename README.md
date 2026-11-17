@@ -28,7 +28,11 @@ create runtimes, run code on them and delete them, from a script or from an agen
    `gcloud services enable colaboratory.googleapis.com --project <your-project>`.
 3. **Check it:** `COLAB_QUOTA_PROJECT=<your-project> make specs` prints your Colab tier and which
    runtimes (CPU, GPU, TPU v5e-1, v6e-1) you can create.
-4. **Add it to Claude Code:**
+4. **Add it to Claude Code.** This repo ships a `.mcp.json`, so the simplest way is to run `claude`
+   in the cloned repo. Claude Code asks you to trust the folder and approve the `colab` server once;
+   after that `/mcp` lists it as connected. Its `headersHelper` runs `tools/colab_token.py --header`,
+   which supplies the token and the quota project (`COLAB_QUOTA_PROJECT`, else your active gcloud
+   project). To have it in every project instead:
 
    ```bash
    claude mcp add-json colab --scope user '{"type": "http",
@@ -38,7 +42,8 @@ create runtimes, run code on them and delete them, from a script or from an agen
    ```
 
    The agent then has `list_runtime_specs`, `create_runtime`, `create_session`, `execute_code`,
-   `get_runtime`, `delete_runtime` and four more. A runtime uses compute units until it is deleted.
+   `get_runtime`, `delete_runtime` and four more. A runtime uses compute units until it is deleted,
+   and an `execute_code` call must finish within 300 s (measured; the stream closes there).
 
 | File | Role |
 | --- | --- |

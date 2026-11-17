@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "colab": {
+      "type": "http",
+      "url": "https://colaboratory.googleapis.com/mcp",
+      "headersHelper": "python3 tools/colab_token.py --header",
+      "timeout": 700000
+    }
+  }
+}
