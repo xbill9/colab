@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>The Colab MCP Endpoint From Claude Code: Set It Up, Test It, Run a Notebook on a TPU</title>
+  <meta name="description" content="Google&#x27;s hosted Colab MCP endpoint, step by step: a token with the colaboratory scope, a quota project, registration in Claude Code with a headers helper, and a Python runner that executes a notebook on a fresh TPU v5e-1 and deletes it." />
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <style>
+    body{font-family:-apple-system,'Segoe UI',Roboto,'Liberation Sans',Arial,sans-serif;
+         font-size:18px;line-height:1.58;max-width:42em;color:#242424;}
+    h1,h2,h3,h4{font-weight:700;line-height:1.25;margin-top:1.8em;}
+    h4{font-size:1.25em;}
+    img{max-width:100%;height:auto;display:block;margin:1.6em 0;}
+    pre{background:#f7f7f7;border:1px solid #e6e6e6;border-radius:4px;
+        padding:12px 14px;overflow-x:auto;font-size:14px;line-height:1.45;}
+    code{font-family:'Liberation Mono',Menlo,Consolas,monospace;}
+    :not(pre)>code{background:#f2f2f2;padding:1px 5px;border-radius:3px;font-size:.9em;}
+    blockquote{border-left:3px solid #ddd;margin-left:0;padding-left:1em;color:#555;}
+    hr{border:0;border-top:1px solid #e6e6e6;margin:2.4em 0;}
+  </style>
+</head>
+<body>
+<p>This article provides a step by step guide to Google's new Colab API
+and hosted MCP endpoint: getting a credential it accepts, registering it
+in Claude Code, testing it, and building a tool that runs a notebook on
+a fresh Colab TPU v5e-1 through it and deletes the runtime
+afterwards.</p>
+<figure><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/colab-mcp/medium/img/devto-cover.7a27a6a0.jpg" alt="The Colab MCP Endpoint From Claude Code: Set It Up, Test It, Run a Notebook on a TPU" /></figure>
+<p><a
+href="https://github.com/xbill9/colab">https://github.com/xbill9/colab</a></p>
+<p><strong>A fresh Colab TPU v5e-1 was ready 4 seconds after
+<code>create_runtime</code>, and a 26-cell notebook ran clean on it
+through <code>execute_code</code> in 901 seconds, with the runtime
+deleted at the end.</strong> The notebook serves Gemma 4 E2B on the TPU.
+The same notebook run through the Colab CLI gives the same answers:</p>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/colab-mcp/medium/img/devto-colab-mcp-table-1.png"
+alt="Table: Gemma 4 E2B serving notebook, Colab v5e-1, 2026-11-17, Colab CLI, MCP endpoint" /></p>
+<hr />
+<h4 id="what-is-the-colab-api">What Is the Colab API?</h4>
+<p>Google <a
+href="https://medium.com/google-colab/the-google-colab-api-and-mcp-endpoint-for-developers-and-agents-65cfef497056">announced</a>
+the Colab API and a hosted MCP endpoint for creating, inspecting and
+deleting Colab runtimes from code. The REST API is <code>v1beta</code>,
+and its discovery document lists six methods:</p>
+<pre class="text"><code>rootUrl https://colaboratory.googleapis.com/ version v1beta revision 20261116
+scope https://www.googleapis.com/auth/colaboratory - Read, write, and delete your Colab resources
+scope https://www.googleapis.com/auth/colaboratory.readonly - Read-only access to your Colab resources
+method GET v1beta/{+name} -&gt; v1beta.getSubscription
+method GET v1beta/runtimespecs -&gt; runtimespecs.list
+method GET v1beta/{+name} -&gt; runtimes.get
+method DELETE v1beta/{+name} -&gt; runtimes.delete
+method GET v1beta/runtimes -&gt; runtimes.list
+method POST v1beta/runtimes -&gt; runtimes.create
+ConnectionInfo fields: [&#39;url&#39;, &#39;token&#39;, &#39;expireTime&#39;]</code></pre>
+<p>A runtime is a Jupyter server. <code>ConnectionInfo</code> carries
+its URL and a short-lived proxy token. The MCP endpoint,
+<code>https://colaboratory.googleapis.com/mcp</code>, wraps those
+methods as tools and adds sessions and code execution.</p>
+<hr />
+<h4 id="at-this-point-you-should-have">At This Point You Should
+Have…</h4>
+<ul>
+<li>A Google account with Colab access.</li>
+<li>A Google Cloud project you can enable an API in.</li>
+<li>Python 3 with <code>google-auth</code> and <code>requests</code>,
+and <code>pip install google-colab-cli</code> for the login in Step
+2.</li>
+<li>Claude Code, for Steps 5 and 6.</li>
+</ul>
+<hr />
+<h4 id="step-1--list-the-tools">Step 1 — List the Tools</h4>
+<p><code>tools/list</code> answers without a token, so it is the
+quickest check that the endpoint is reachable:</p>
+<pre class="shell"><code>curl -s -X POST https://colaboratory.googleapis.com/mcp \
+  -H &#39;content-type: application/json&#39; -H &#39;accept: application/json, text/event-stream&#39; \
+  -d &#39;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/list&quot;}&#39;
+create_runtime       Creates a Colab runtime and waits until it&#39;s ready.
+create_session       Opens a Jupyter kernel session on a runtime (`runtimes/{runtime_id}`) and returns its name (`runtimes/{runtime_id}/sessions/{session_id}`).
+delete_session       Closes a session (`runtimes/{runtime_id}/sessions/{session_id}`), discarding its kernel state and aborting any `execute_code` call running in it. Files it wrote stay on the runtime, and the runtime keeps running.
+execute_code         Runs Python in a Colab runtime&#39;s Jupyter kernel. Returns stdout, stderr, the value of the last expression (`result`), and any exception (`executionError`). Only text is returned, not images or plots. Output over the size limit is truncated and flagged with `outputTruncated`.
+get_subscription     Gets the user&#39;s Colab subscription tier: free, Pro or Pro+. https://colab.research.google.com/signup compares the tiers.
+list_sessions        Lists the open sessions on a runtime (`runtimes/{runtime_id}`), including ones you didn&#39;t open, such as the user&#39;s notebooks. Use it to find a session of yours to reuse or close. Close only sessions you opened. It returns names only, not what is running in them.
+delete_runtime       Deletes a runtime (`runtimes/{runtime_id}`) and everything on it: files, sessions and their state. This can&#39;t be undone.
+get_runtime          Gets a runtime (`runtimes/{runtime_id}`), including its spec and `connectionInfo`.
+list_runtimes        Lists the user&#39;s Colab runtimes, with their specs and `connectionInfo`. Check here for a runtime to reuse before calling `create_runtime`.
+list_runtime_specs   Lists the runtime specs (variant, accelerator and shape) and whether the user is eligible for each. Call it before `create_runtime` to pick a spec.
+10 tools</code></pre>
+<p>The descriptions are written for an agent: they say when to reuse a
+runtime, when to retry, and which calls cannot be undone.</p>
+<hr />
+<h4 id="step-2--get-a-token-with-the-colaboratory-scope">Step 2 — Get a
+Token With the <code>colaboratory</code> Scope</h4>
+<p>Every tool call needs an access token carrying
+<code>https://www.googleapis.com/auth/colaboratory</code>. A plain
+<code>gcloud auth application-default login</code> token lacks it:</p>
+<pre class="text"><code>token scopes: email https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/sqlservice.login https://www.googleapis.com/auth/userinfo.email openid
+403 PERMISSION_DENIED Request had insufficient authentication scopes. ACCESS_TOKEN_SCOPE_INSUFFICIENT</code></pre>
+<p>The <a href="https://github.com/googlecolab/google-colab-cli">Colab
+CLI</a>'s own login asks for the scope. Sign in once:</p>
+<pre class="shell"><code>pip install google-colab-cli
+colab --auth oauth2 sessions</code></pre>
+<p>It saves a refreshable token in
+<code>~/.config/colab-cli/token.json</code>.
+<code>tools/colab_token.py</code> refreshes it in memory and prints a
+fresh access token, never rewriting the file:</p>
+<pre class="python"><code>def access_token() -&gt; str:
+    creds = Credentials.from_authorized_user_file(str(TOKEN_FILE))
+    if SCOPE not in (creds.scopes or []):
+        sys.exit(f&quot;{TOKEN_FILE} lacks the {SCOPE} scope; run: colab --auth oauth2 sessions&quot;)
+    creds.refresh(google.auth.transport.requests.Request())
+    return creds.token</code></pre>
+<hr />
+<h4 id="mag_right-tip-read-a-tokens-scopes-before-debugging-a-403">🔎
+Tip: Read a Token's Scopes Before Debugging a 403</h4>
+<p>Google's <code>tokeninfo</code> endpoint lists the scopes a token
+carries, which tells a scope problem apart from a permission problem in
+one call:</p>
+<pre class="shell"><code>curl -s &quot;https://oauth2.googleapis.com/tokeninfo?access_token=$(python3 tools/colab_token.py)&quot;</code></pre>
+<p>Asking <code>google.auth.default()</code> for the
+<code>colaboratory</code> scope does not add it: an ADC refresh token
+returns the scopes it was granted at login.</p>
+<hr />
+<h4 id="step-3--name-a-quota-project">Step 3 — Name a Quota Project</h4>
+<p>With the right scope, the next call names the second requirement:</p>
+<pre class="text"><code>ToolError: HTTP 403: {&quot;id&quot;:1,&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;result&quot;:{&quot;content&quot;:[{&quot;text&quot;:&quot;Your application is authenticating by using local Application Default Credentials. The colaboratory.googleapis.com API requires a quota project, which is not set by default. To learn how to set your quota project, see https://cloud.google.com/docs/authentication/adc-troubleshooting/user-creds .&quot;,&quot;type&quot;:&quot;text&quot;}],&quot;isError&quot;:tr</code></pre>
+<p>Enable the API in a project you own and send that project as
+<code>x-goog-user-project</code>:</p>
+<pre class="shell"><code>gcloud services enable colaboratory.googleapis.com --project &lt;your-project&gt;
+export COLAB_QUOTA_PROJECT=&lt;your-project&gt;</code></pre>
+<p><code>colab_token.py --header</code> prints both headers as JSON:</p>
+<pre class="python"><code>def headers() -&gt; dict:
+    &quot;&quot;&quot;Authorization plus, when COLAB_QUOTA_PROJECT is set, the quota project the endpoint requires.&quot;&quot;&quot;
+    h = {&quot;Authorization&quot;: f&quot;Bearer {access_token()}&quot;}
+    if QUOTA_PROJECT:
+        h[&quot;x-goog-user-project&quot;] = QUOTA_PROJECT
+    return h</code></pre>
+<hr />
+<h4 id="step-4--test-it-your-tier-and-the-runtimes-you-can-create">Step
+4 — Test It: Your Tier and the Runtimes You Can Create</h4>
+<p><code>tools/colab_mcp.py</code> is a small JSON-RPC client for the
+endpoint. <code>make specs</code> calls <code>get_subscription</code>
+and <code>list_runtime_specs</code>:</p>
+<pre class="shell"><code>COLAB_QUOTA_PROJECT=&lt;your-project&gt; make specs
+subscription: SUBSCRIPTION_TIER_FREE
+  VARIANT_CPU    NONE       SHAPE_HIGHMEM   not eligible
+  VARIANT_CPU    NONE       SHAPE_STANDARD  eligible
+  VARIANT_GPU    A100       SHAPE_HIGHMEM   not eligible
+  VARIANT_GPU    T4         SHAPE_HIGHMEM   not eligible
+  VARIANT_GPU    A100       SHAPE_STANDARD  eligible
+  VARIANT_GPU    G4         SHAPE_STANDARD  eligible
+  VARIANT_GPU    H100       SHAPE_STANDARD  not eligible
+  VARIANT_GPU    L4         SHAPE_STANDARD  eligible
+  VARIANT_GPU    T4         SHAPE_STANDARD  eligible
+  VARIANT_TPU    V5E1       SHAPE_STANDARD  eligible
+  VARIANT_TPU    V6E1       SHAPE_STANDARD  eligible</code></pre>
+<p>Eligibility says the account may ask for a spec. Capacity is decided
+at <code>create_runtime</code>, which returns
+<code>FAILED_PRECONDITION</code> when there is none.</p>
+<hr />
+<h4 id="step-5--register-the-endpoint-in-claude-code">Step 5 — Register
+the Endpoint in Claude Code</h4>
+<p>Claude Code's built-in OAuth for remote MCP servers registers a
+client on the fly, and Google's authorization server does not support
+that:</p>
+<pre class="text"><code>plugin:google-cloud-developer:developer-knowledge: https://developerknowledge.googleapis.com/mcp (HTTP) - ✘ Failed to connect — Incompatible auth server: does not support dynamic client registration</code></pre>
+<p>A <code>headersHelper</code> sidesteps it: Claude Code runs a command
+when it connects and sends the JSON it prints as request headers.
+<code>colab_token.py --header</code> is that command:</p>
+<pre class="shell"><code>claude mcp add-json colab --scope user &#39;{&quot;type&quot;: &quot;http&quot;,
+  &quot;url&quot;: &quot;https://colaboratory.googleapis.com/mcp&quot;,
+  &quot;headersHelper&quot;: &quot;COLAB_QUOTA_PROJECT=&lt;your-project&gt; python3 /path/to/colab/tools/colab_token.py --header&quot;,
+  &quot;timeout&quot;: 700000}&#39;
+claude mcp get colab
+colab:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: http
+  URL: https://colaboratory.googleapis.com/mcp
+  Timeout: 700000ms</code></pre>
+<p>The tool description says an <code>execute_code</code> call is held
+open for up to 600 seconds, so the timeout is set above that. Step 8's
+tip has the measured limit.</p>
+<hr />
+<h4 id="step-6--ask-claude-code">Step 6 — Ask Claude Code</h4>
+<p>A new session picks the tools up. With only the read-only tools
+allowed:</p>
+<pre class="shell"><code>claude -p &quot;Using the colab MCP server, tell me my Colab subscription tier and which TPU runtime specs I am eligible for. Call the tools; do not guess.&quot; \
+  --allowedTools mcp__colab__get_subscription mcp__colab__list_runtime_specs mcp__colab__list_runtimes
+**Subscription tier:** Free (`SUBSCRIPTION_TIER_FREE`).
+ 
+**TPU runtime specs:** the list has two, and you&#39;re eligible for both.
+ 
+| Variant | Accelerator | Shape | Eligible |
+|---|---|---|---|
+| TPU | V5E1 (v5e, 1 chip) | Standard | ✅ |
+| TPU | V6E1 (v6e, 1 chip) | Standard | ✅ |</code></pre>
+<p><code>create_runtime</code>, <code>execute_code</code> and
+<code>delete_runtime</code> are left out of <code>--allowedTools</code>,
+so Claude Code asks before it spends compute or deletes anything.</p>
+<hr />
+<h4 id="step-7--build-a-client-that-survives-long-calls">Step 7 — Build:
+A Client That Survives Long Calls</h4>
+<p>The endpoint answers a call with plain JSON or with a server-sent
+event stream, and the client reads the last data event that carries a
+result:</p>
+<pre class="python"><code>if r.headers.get(&quot;content-type&quot;, &quot;&quot;).startswith(&quot;text/event-stream&quot;):
+    for line in r.text.splitlines():  # the last data event carries the result
+        if line.startswith(&quot;data:&quot;):
+            event = json.loads(line[5:])
+            if &quot;result&quot; in event or &quot;error&quot; in event:
+                msg = event</code></pre>
+<p>Two tools document a retry that reattaches instead of repeating work:
+<code>create_runtime</code> with the same <code>requestId</code>, and
+<code>execute_code</code> with the same <code>session</code> and
+<code>executionId</code>, after <code>DEADLINE_EXCEEDED</code> or
+<code>UNAVAILABLE</code>. The client repeats the identical call in those
+cases only:</p>
+<pre class="python"><code>REATTACH = (&quot;DEADLINE_EXCEEDED&quot;, &quot;UNAVAILABLE&quot;)
+ 
+def call_reattaching(self, name: str, arguments: dict, attempts: int = 20) -&gt; dict:
+    &quot;&quot;&quot;Repeat an identical call while the endpoint says the work is still in progress.&quot;&quot;&quot;
+    for attempt in range(1, attempts + 1):
+        try:
+            return self.call(name, arguments)
+        except ToolError as e:
+            if not e.reattach or attempt == attempts:
+                raise</code></pre>
+<hr />
+<h4 id="step-8--build-run-a-notebook-on-a-fresh-v5e-1">Step 8 — Build:
+Run a Notebook on a Fresh v5e-1</h4>
+<p><code>tools/run_on_colab.py</code> runs a notebook through the
+endpoint: pick an eligible spec, create the runtime, open one session,
+send each code cell to <code>execute_code</code>, record the outputs,
+and delete the runtime in a <code>finally</code>:</p>
+<pre class="python"><code>runtime = mcp.call_reattaching(&quot;create_runtime&quot;, {&quot;requestId&quot;: str(uuid.uuid4()), &quot;runtime&quot;: {&quot;runtimeSpec&quot;: key}})
+name = runtime[&quot;name&quot;]
+try:
+    session = mcp.call(&quot;create_session&quot;, {&quot;parent&quot;: name, &quot;sessionId&quot;: &quot;verify&quot;})[&quot;name&quot;]
+    for cell in cells:
+        res = mcp.call_reattaching(
+            &quot;execute_code&quot;, {&quot;session&quot;: session, &quot;code&quot;: cell.source, &quot;executionId&quot;: str(uuid.uuid4())}
+        )
+        cell.outputs = outputs_of(res)
+finally:
+    mcp.call(&quot;delete_runtime&quot;, {&quot;name&quot;: name, &quot;allowMissing&quot;: True})</code></pre>
+<p>The notebook is the Gemma 4 E2B serving demo from the same
+repository: a 6.56 GB download, a JAX engine, an OpenAI-compatible
+server, samples and a llama.cpp comparison. <code>make verify</code>
+runs it:</p>
+<pre class="shell"><code>COLAB_QUOTA_PROJECT=&lt;your-project&gt; make verify
+=== gemma4_e2b_serving_v5e1 on {&#39;accelerator&#39;: &#39;V5E1&#39;, &#39;shape&#39;: &#39;SHAPE_STANDARD&#39;, &#39;variant&#39;: &#39;VARIANT_TPU&#39;} ===
+  runtime runtimes/r-508e423c-84f3-4398-9cc3-44216293a093 ready in 4 s
+  [1/26] # Cell 1.1: start the checkpoint download in the background
+        1 s
+  [4/26] # Cell 2.1: the engine, pinned, and the checkpoint on the chip
+        85 s
+  [9/26] # Cell 3.1: the client and the measuring helper
+        177 s
+  [17/26] # Cell 3.9: first-token time against prompt length
+        159 s
+  [23/26] # Cell 5.3: thinking on (about four minutes at CPU speed)
+        211 s
+  [26/26] # Cell 7.1: stop the servers and free the chip
+        2 s
+  runtime runtimes/r-508e423c-84f3-4398-9cc3-44216293a093 deleted
+  total 901 s from create_runtime to delete_runtime
+OK: gemma4_e2b_serving_v5e1 ran clean on v5e1 -&gt; runs/2026-11-17/gemma4_e2b_serving_v5e1_mcp_output.ipynb</code></pre>
+<p>The excerpt keeps the longest cells; the full log is in the
+repository's evidence folder. The executed notebook is written back with
+each cell's stdout, stderr and errors, and scanned for errors and
+unexpected stderr.</p>
+<hr />
+<h4 id="mag_right-tip-keep-every-cell-under-300-seconds">🔎 Tip: Keep
+Every Cell Under 300 Seconds</h4>
+<p>The <code>execute_code</code> description gives a 600-second cutoff
+after which the code keeps running and the identical call reattaches.
+Measured from this client on a CPU runtime, one call printing a line
+every 30 seconds:</p>
+<pre class="shell"><code>COLAB_QUOTA_PROJECT=&lt;your-project&gt; python3 tools/check_long_call.py 420
+call 1: stream dropped after 300 s (ChunkedEncodingError)
+call 2: returned after 2 s
+  stdout: [&#39;30&#39;, &#39;s&#39;, &#39;60&#39;, &#39;s&#39;, &#39;90&#39;, &#39;s&#39;, &#39;120&#39;, &#39;s&#39;, &#39;150&#39;, &#39;s&#39;, &#39;180&#39;, &#39;s&#39;, &#39;210&#39;, &#39;s&#39;, &#39;240&#39;, &#39;s&#39;, &#39;270&#39;, &#39;s&#39;, &#39;300&#39;, &#39;s&#39;]
+  result: None  error: KeyboardInterrupt</code></pre>
+<p>The stream closed at 300 seconds, the kernel was interrupted at that
+moment, and the reattach returned the interrupted result. A notebook
+driven through the endpoint needs every cell to finish inside 300
+seconds. The demo notebook's CPU comparison runs as three cells for this
+reason, the longest about four minutes, and <code>run_on_colab.py</code>
+names the cause when a cell hits the limit.</p>
+<hr />
+<h4 id="mag_right-tip-one-session-holds-the-notebooks-state">🔎 Tip: One
+Session Holds the Notebook's State</h4>
+<p>Every <code>execute_code</code> call that names the same session
+shares one kernel, so variables, imports and background threads from one
+cell are there for the next, as in Colab's own notebook view. A server a
+cell starts in a thread keeps running between calls, and a later cell
+reaches it on <code>127.0.0.1</code>. Output comes back as text only: a
+cell that displays HTML, such as the notebook's chat page, returns
+nothing for it.</p>
+<hr />
+<h4 id="step-9--clean-up">Step 9 — Clean Up</h4>
+<p><code>delete_runtime</code> runs in the <code>finally</code>, so an
+exception or Ctrl-C between creation and teardown still releases the
+chip. <code>list_runtimes</code> confirms it:</p>
+<pre class="shell"><code>COLAB_QUOTA_PROJECT=&lt;your-project&gt; python3 tools/colab_mcp.py call list_runtimes
+{}</code></pre>
+<p>An empty object means the account holds no runtimes.</p>
+<hr />
+<h4 id="compare-and-contrast">Compare and Contrast</h4>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/colab-mcp/medium/img/devto-colab-mcp-table-2.png"
+alt="Table: Colab CLI (colab exec), Colab MCP endpoint" /></p>
+<hr />
+<h4 id="so-which-one">So, Which One?</h4>
+<p>For an agent, use the MCP endpoint: the tools are described for
+agents, a runtime is one call away, and <code>list_runtimes</code> and
+<code>delete_runtime</code> reach every runtime the account owns.</p>
+<p>For a one-off script that runs a whole notebook file, the Colab CLI
+is one command. The CLI's login is also the quickest way to get a token
+with the <code>colaboratory</code> scope.</p>
+<hr />
+<h4 id="summary">Summary</h4>
+<p>The goal of this article was to set up Google's Colab MCP endpoint,
+test it from Claude Code, and build a tool that runs a notebook on a
+hosted TPU through it. The key to the solution was a token with the
+<code>colaboratory</code> scope from the Colab CLI's login, a quota
+project with the API enabled, and a <code>headersHelper</code> that
+hands both to Claude Code. The results were:</p>
+<ul>
+<li>🟢 <code>tools/list</code> answers without a token; every tool call
+needs the <code>colaboratory</code> scope and a quota project</li>
+<li>🟢 The Colab CLI's login supplies the scope, and a
+<code>headersHelper</code> hands the token to Claude Code</li>
+<li>🟢 Claude Code lists the tier and the eligible TPU specs from a
+plain-language prompt</li>
+<li>🟢 A v5e-1 was ready 4 seconds after
+<code>create_runtime</code></li>
+<li>🟢 A 26-cell Gemma 4 notebook ran clean through
+<code>execute_code</code> in 901 seconds, with the same answers as the
+Colab CLI run</li>
+<li>🟢 <code>delete_runtime</code> in a <code>finally</code> left no
+runtimes behind</li>
+<li>⚠️ An <code>execute_code</code> stream closes at 300 seconds and
+interrupts the kernel, so cells must stay under it</li>
+<li>⚠️ <code>execute_code</code> returns text only; HTML output such as
+a chat page does not come back</li>
+<li>❌ A <code>gcloud auth application-default login</code> token is
+refused for lack of the scope</li>
+</ul>
+<p>Scope: one Google account on the free tier, quota project in one
+Google Cloud project, Claude Code 2.1.326, Colab API <code>v1beta</code>
+revision 20261116, one notebook run through the endpoint and one through
+the Colab CLI on 2026-11-17, the 300-second measurement on one CPU
+runtime. Runtime capacity and the endpoint's rate limits were not
+tested.</p>
+<p>The strategy for using MCP for hosted Colab runtimes was validated
+with an incremental step by step approach.</p>
+<hr />
+<h4 id="references">References</h4>
+<ul>
+<li>Repository: <a
+href="https://github.com/xbill9/colab">https://github.com/xbill9/colab</a></li>
+<li>Announcement: <a
+href="https://medium.com/google-colab/the-google-colab-api-and-mcp-endpoint-for-developers-and-agents-65cfef497056">https://medium.com/google-colab/the-google-colab-api-and-mcp-endpoint-for-developers-and-agents-65cfef497056</a></li>
+<li>MCP reference: <a
+href="https://developers.google.com/colab/api/reference/mcp">https://developers.google.com/colab/api/reference/mcp</a></li>
+<li>REST reference: <a
+href="https://developers.google.com/colab/api/reference/rest">https://developers.google.com/colab/api/reference/rest</a></li>
+<li>Colab CLI: <a
+href="https://github.com/googlecolab/google-colab-cli">https://github.com/googlecolab/google-colab-cli</a></li>
+<li>The notebook it runs: <a
+href="https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb">https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb</a></li>
+</ul>
+</body>
+</html>

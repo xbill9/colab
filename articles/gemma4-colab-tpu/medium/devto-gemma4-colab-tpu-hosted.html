@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.11" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Gemma 4 on a Hosted Colab TPU: The QAT Repack, Served in Two Minutes</title>
+  <meta name="description" content="One notebook loads the Gemma 4 E2B QAT repack onto a Colab v5e-1, serves it behind an OpenAI-compatible endpoint with a chat page, and steps through thinking, sampling, stop sequences, long prompts and a CPU comparison." />
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <style>
+    body{font-family:-apple-system,'Segoe UI',Roboto,'Liberation Sans',Arial,sans-serif;
+         font-size:18px;line-height:1.58;max-width:42em;color:#242424;}
+    h1,h2,h3,h4{font-weight:700;line-height:1.25;margin-top:1.8em;}
+    h4{font-size:1.25em;}
+    img{max-width:100%;height:auto;display:block;margin:1.6em 0;}
+    pre{background:#f7f7f7;border:1px solid #e6e6e6;border-radius:4px;
+        padding:12px 14px;overflow-x:auto;font-size:14px;line-height:1.45;}
+    code{font-family:'Liberation Mono',Menlo,Consolas,monospace;}
+    :not(pre)>code{background:#f2f2f2;padding:1px 5px;border-radius:3px;font-size:.9em;}
+    blockquote{border-left:3px solid #ddd;margin-left:0;padding-left:1em;color:#555;}
+    hr{border:0;border-top:1px solid #e6e6e6;margin:2.4em 0;}
+  </style>
+</head>
+<body>
+<p>This article provides a step by step guide to serving Gemma 4 E2B on
+a hosted Colab v5e-1 runtime: one TPU v5e chip. A single notebook
+downloads the QAT repack, loads it with a pure-JAX engine, serves it
+behind an OpenAI-compatible endpoint with a browser chat page, and then
+exercises the serving options an application uses.</p>
+<figure><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/gemma4-colab-tpu/medium/img/devto-cover.b0d9000a.jpg" alt="Gemma 4 on a Hosted Colab TPU: The QAT Repack, Served in Two Minutes" /></figure>
+<p><a
+href="https://github.com/xbill9/colab">https://github.com/xbill9/colab</a></p>
+<p><strong>The model is ready to chat 117 seconds after Run all, and
+decodes at 123.7 to 124.6 tokens per second.</strong> One Colab v5e-1
+runtime, 2026-11-17:</p>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/gemma4-colab-tpu/medium/img/devto-gemma4-colab-tpu-table-1.png"
+alt="Table: Seconds after Run all, Stage" /></p>
+<hr />
+<h4 id="what-is-being-served">What Is Being Served?</h4>
+<p>The model is <a
+href="https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text"><code>xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text</code></a>.
+Google trained Gemma 4 E2B with quantization-aware training, which holds
+every weight on a 4-bit grid during training. The repack stores those
+trained 4-bit levels and their trained scales in the W4A16 format, with
+the vision and audio towers removed.</p>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/gemma4-colab-tpu/medium/img/devto-gemma4-colab-tpu-table-2.png"
+alt="Table: Build, Download" /></p>
+<p>Google's W4A16 export re-rounds every group of 32 weights onto a new
+grid. Served by vLLM on one v5e chip, the two builds decode at the same
+speed, 136.6 and 136.5 tokens per second, and the repack scores 0.678
+against 0.655 on a 3,880-record test suite. The <code>-text-emb4</code>
+build is the smallest download, and the engine used here reads bf16
+embedding tables, so the notebook uses <code>-text</code>.</p>
+<hr />
+<h4 id="at-this-point-you-should-have">At This Point You Should
+Have…</h4>
+<ul>
+<li>A Google account with Colab access. A TPU v5e-1 runtime is listed as
+eligible on the free tier for this account.</li>
+<li>Nothing else. Every download is public and no Hugging Face token is
+needed.</li>
+</ul>
+<hr />
+<h4 id="step-1--open-the-notebook">Step 1 — Open the Notebook</h4>
+<p>Two notebooks share the same first two sections. <a
+href="https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb"><code>gemma4_e2b_basic_v5e1</code></a>
+stops once the model is served and the chat page is up. <a
+href="https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb"><code>gemma4_e2b_advanced_v5e1</code></a>
+continues through every step below. Open one in Colab, pick
+<strong>Runtime → Change runtime type → v5e-1 TPU</strong>, then
+<strong>Runtime → Run all</strong>.</p>
+<p>Both are built from jupytext sources in <code>src/parts/</code>, so
+the shared cells exist once. Executed copies from real v5e-1 runs are in
+<code>runs/2026-11-17/</code>.</p>
+<hr />
+<h4 id="step-2--read-the-chip-while-the-model-downloads">Step 2 — Read
+the Chip While the Model Downloads</h4>
+<p>The first cell starts the download in its own process and returns at
+once:</p>
+<pre class="python"><code>download = subprocess.Popen(
+    [sys.executable, &quot;-c&quot;, DOWNLOAD, MODEL_ID, MODEL_REV],
+    stdout=subprocess.PIPE,
+    stderr=download_log,
+    text=True,
+)
+downloading xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text @ 315aec06 in the background (pid 2547)</code></pre>
+<p>While it runs, the next cell reports the software, the chip and the
+host:</p>
+<pre class="text"><code>software
+  Python        3.13.18
+  jax           0.11.2
+  jaxlib        0.11.2
+  libtpu        0.0.50
+  transformers  5.22.1
+  huggingface_hub 1.33.0
+ 
+TPU
+  devices       1 x TPU v5 lite
+  HBM           16.91 GB, 0.00 GB in use
+  $TPU_ACCELERATOR_TYPE = v5e-1
+ 
+host
+  CPU           24 x AMD EPYC 7B13
+  RAM           50.5 GB
+  free disk     241 GB</code></pre>
+<p>Then two kernels show what the chip does:</p>
+<pre class="text"><code>bf16 matmul 8192x8192: 6.17 ms  -&gt;  178 TFLOP/s
+1 GiB elementwise:     3.62 ms  -&gt;  593 GB/s of HBM traffic</code></pre>
+<p>Decoding one token reads every weight from HBM, so the bandwidth
+figure is the one that sets decode speed.</p>
+<hr />
+<h4 id="mag_right-tip-start-the-long-download-first">🔎 Tip: Start the
+Long Download First</h4>
+<p>A 6.56 GB checkpoint takes about a minute on Colab. Started in the
+first cell, it finishes while the version and chip cells run, and the
+load cell waited 0 seconds for it:</p>
+<pre class="text"><code>checkpoint: 6.56 GB, done 63 s after the first cell (this cell waited 0 s for it)</code></pre>
+<p>The download runs in a separate Python process. When that process
+exits, the VM gets back the host RAM the downloader held.</p>
+<hr />
+<h4 id="step-3--pick-the-engine-that-answers-first">Step 3 — Pick the
+Engine That Answers First</h4>
+<p>Start-up time decides the engine for a demo. Three were measured on
+this chip type:</p>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/gemma4-colab-tpu/medium/img/devto-gemma4-colab-tpu-table-3.png"
+alt="Table: Engine, Time to first answer, Where it runs" /></p>
+<p><code>tpu-jax</code> is a Gemma 4 E2B decoder in pure JAX. It
+compiles only the shapes a request uses. llama.cpp starts fastest
+because it has nothing to compile, and it has no TPU backend, so on this
+runtime it uses the host CPU. Step 12 measures what that costs.</p>
+<hr />
+<h4 id="step-4--load-the-weights">Step 4 — Load the Weights</h4>
+<p>The engine is cloned at a pinned commit.
+<code>dequant_at_load=True</code> unpacks the 4-bit weights to bf16
+once, at load:</p>
+<pre class="python"><code>ENGINE = JaxGemmaEngine(
+    MODEL_ID, quant_mode=&quot;w4a16&quot;, max_model_len=MAX_MODEL_LEN, dequant_at_load=DEQUANT_AT_LOAD
+)
+ENGINE.load(local_dir=str(MODEL_DIR))
+engine: tpu-jax 4b9f8e9, dequant_at_load=True, 9.26 GB of weights on the chip, loaded in 17 s
+HBM in use: 9.27 of 16.91 GB</code></pre>
+<p>On a Colab v5e-1 on 2026-10-21, the same engine and repack decoded at
+130.8 tokens per second unpacked and 103.1 packed, with identical
+tokens, using 9.30 GB of HBM against 6.62 GB. The chip has room for the
+unpacked weights, so the notebook defaults to <code>True</code>.</p>
+<hr />
+<h4 id="step-5--serve-it-behind-an-openai-endpoint">Step 5 — Serve It
+Behind an OpenAI Endpoint</h4>
+<p>A standard-library HTTP server runs in a background thread, with
+routes shaped like vLLM's: <code>/health</code>, <code>/version</code>,
+<code>/v1/models</code>, <code>/metrics</code> and
+<code>/v1/chat/completions</code>. Any OpenAI client works against
+it.</p>
+<p>Thinking is a chat-template switch, passed the way vLLM takes it, in
+<code>chat_template_kwargs</code>. The model writes its reasoning
+between the special tokens <code>&lt;|channel&gt;</code> and
+<code>&lt;channel|&gt;</code>, and the server returns that text as
+<code>reasoning_content</code> and the rest as <code>content</code>:</p>
+<pre class="python"><code>class ReasoningSplitter:
+    &quot;&quot;&quot;Turn generated token ids into (kind, text) deltas, kind being &#39;reasoning&#39; or &#39;content&#39;.&quot;&quot;&quot;
+ 
+    LABEL = &quot;thought\n&quot;
+ 
+    def feed(self, tid):
+        if tid in (CH_OPEN, CH_CLOSE):
+            self.kind = &quot;reasoning&quot; if tid == CH_OPEN else &quot;content&quot;
+            self.ids, self.sent = [], 0
+            return None
+        self.ids.append(tid)
+        text = TOK.decode(self.ids, skip_special_tokens=True)
+        # the &quot;thought&quot; label and half-decoded characters are held back here
+        delta, self.sent = text[self.sent :], len(text)
+        return (self.kind, delta) if delta else None</code></pre>
+<p>One short request compiles the shape most chat turns use:</p>
+<pre class="text"><code>warm-up: &#39;Hello! How can I help you today?&#39; in 24 s, including the compile
+OpenAI-compatible server on http://127.0.0.1:8000/v1</code></pre>
+<hr />
+<h4
+id="mag_right-tip-round-max_tokens-up-so-one-program-serves-many-requests">🔎
+Tip: Round <code>max_tokens</code> Up So One Program Serves Many
+Requests</h4>
+<p>The engine compiles one program per pair of padded prompt length and
+answer budget. Prompts pad to 64, 128, 256 and so on. The server rounds
+the answer budget up to 512, 2048 or 4096 tokens and cuts the stream at
+the requested <code>max_tokens</code>:</p>
+<pre class="python"><code>budget = next((b for b in ANSWER_BUDGETS if b &gt;= max_tokens), max_tokens)</code></pre>
+<p>A request for 16 tokens and one for 500 share one compiled program.
+Every response carries <code>x_new_shape: true</code> when serving it
+compiled a new one, so a slow first token can be traced to a
+compile.</p>
+<hr />
+<h4 id="step-6--the-chat-page">Step 6 — The Chat Page</h4>
+<p>The chat page is the repository's <a
+href="https://github.com/xbill9/colab/blob/main/ui/chat_ui.py"><code>ui/chat_ui.py</code></a>,
+adapted from the <a
+href="https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b"><code>tpu-vllm-v5e1-2b</code></a>
+rig's page. It is a small standard-library proxy that serves the page
+and forwards <code>/v1/*</code> to the server, and it reads the server's
+<code>tpu_jax:</code> counters, or vLLM's when pointed at a vLLM server.
+The notebook starts it and shows it in the cell output through Colab's
+port proxy:</p>
+<pre class="python"><code>output.serve_kernel_port_as_iframe(UI_PORT, height=720)</code></pre>
+<p>Its "what is running" panel reads the server:</p>
+<pre class="text"><code>  &quot;model&quot;: {
+    &quot;id&quot;: &quot;xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text&quot;,
+    &quot;owned_by&quot;: &quot;tpu-jax&quot;,
+    &quot;max_model_len&quot;: 4096
+  },
+  &quot;version&quot;: &quot;tpu-jax 4b9f8e9 (JAX 0.11.2)&quot;,
+ 
+READY: model served and chat page up 117 s after the first cell started</code></pre>
+<p>The side panel has max tokens, temperature, top-k and a system
+prompt, and shows each reply's first-token time and decode rate. The
+page sends no thinking flag, so the server's
+<code>THINKING_DEFAULT</code> decides. Run
+<code>THINKING_DEFAULT = True</code> in a new cell and the next reply
+shows its reasoning in a collapsible section.</p>
+<hr />
+<h4 id="step-7--compile-the-chat-shapes-in-the-background">Step 7 —
+Compile the Chat Shapes in the Background</h4>
+<p>A conversation's first turns move through the 128, 256 and 512-token
+prompt buckets, and a thinking answer needs the 2048-token budget. A
+background thread compiles those shapes one at a time, holding the
+engine lock for each, so a chat message sent meanwhile waits for at most
+one compile:</p>
+<pre class="text"><code>background compiles (waited 178 s for them here):
+  prompt bucket  128, answer budget  512:  25.5 s
+  prompt bucket  256, answer budget  512:  29.0 s
+  prompt bucket   64, answer budget 2048:  23.1 s
+  prompt bucket  128, answer budget 2048:  25.7 s
+  prompt bucket  512, answer budget  512:  46.6 s
+  prompt bucket  256, answer budget 2048:  29.2 s</code></pre>
+<p>Every sample after this point runs on a warm shape.</p>
+<hr />
+<h4 id="step-8--thinking-off-and-on">Step 8 — Thinking Off and On</h4>
+<p>Every sample goes through the official <code>openai</code> client.
+The same question, greedy, both ways:</p>
+<pre class="python"><code>r_think = ask(
+    &quot;A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost?&quot;,
+    thinking=True,
+    temperature=0,
+    max_tokens=2048,
+)
+[stop] prompt 43 tok, completion 391 tok, first token 0.19 s, decode 123.7 tok/s, total 3.3 s
+[stop] prompt 50 tok, completion 857 tok, first token 0.17 s, decode 123.9 tok/s, total 7.1 s
+ 
+thinking used 857 tokens against 391 without; wall time 7.1 s against 3.3 s</code></pre>
+<p>Both answers say the ball costs $0.05. Thinking more than doubles the
+tokens and the wall time, at the same decode rate.</p>
+<hr />
+<h4 id="step-9--sampling-seeds-and-top-k">Step 9 — Sampling, Seeds and
+Top-k</h4>
+<p>A fixed <code>seed</code> repeats a sampled answer exactly, and other
+seeds vary it:</p>
+<pre class="text"><code>seed 7: Sweet treats after dark.
+seed 7: Sweet treats after dark.
+seed 8: Stay hungry after dark with our magical late-night bakery.
+seed 9: Wake up your night with delicious treats from [Bakery Name]!
+ 
+seed 7 repeated exactly: True
+distinct answers across seeds 7, 8, 9: 3 of 3</code></pre>
+<p><code>top_k</code> travels in the request body, because it is outside
+the OpenAI schema:</p>
+<pre class="text"><code>greedy                      124.6 tok/s  (157 tokens)
+temperature 1, top-k off    123.1 tok/s  (145 tokens)
+temperature 1, top-k 64     119.4 tok/s  (145 tokens)</code></pre>
+<p>On the vLLM rig on the same chip type, top-k 64 took decode from 125
+to 45 tokens per second. In this engine it costs about 4 percent.</p>
+<hr />
+<h4 id="step-10--max_tokens-and-stop-sequences">Step 10 —
+<code>max_tokens</code> and Stop Sequences</h4>
+<pre class="text"><code>max_tokens=20:
+Mercury: The smallest planet in our solar system and the closest to the Sun.
+Venus: The
+ 
+[length] prompt 26 tok, completion 20 tok, first token 0.16 s, decode 125.9 tok/s, total 0.3 s
+ 
+stop=[&#39;Saturn&#39;]:
+Mercury
+Venus
+Earth
+Mars
+Jupiter
+ 
+[stop] prompt 26 tok, completion 12 tok, first token 0.01 s, decode 126.5 tok/s, total 0.1 s</code></pre>
+<p>"Saturn" arrives as more than one token. The server holds back any
+text that could be the start of a stop sequence until the next tokens
+settle it, so the answer ends cleanly at "Jupiter".</p>
+<hr />
+<h4 id="step-11--multi-turn-chat-and-json">Step 11 — Multi-Turn Chat and
+JSON</h4>
+<p>The client keeps the history and sends it back each turn, with a
+system prompt setting the voice:</p>
+<pre class="text"><code>You are in the North Atlantic Ocean. This is near the coast of North America.
+ 
+The nearest land is the coast of Newfoundland, Canada. It is a relatively close point.
+ 
+[stop] prompt 79 tok, completion 18 tok, first token 0.13 s, decode 118.8 tok/s, total 0.3 s</code></pre>
+<p>JSON by instruction, then parsed:</p>
+<pre class="text"><code>{&quot;name&quot;: &quot;Ada&quot;, &quot;city&quot;: &quot;Lisbon&quot;, &quot;year&quot;: 2019}
+ 
+parsed: {&#39;name&#39;: &#39;Ada&#39;, &#39;city&#39;: &#39;Lisbon&#39;, &#39;year&#39;: 2019}</code></pre>
+<p>The server does not constrain decoding to a schema, so the cell
+checks that the reply parses.</p>
+<hr />
+<h4 id="step-12--long-prompts-and-the-context-limit">Step 12 — Long
+Prompts and the Context Limit</h4>
+<p>Each prompt length lands in a new bucket, so the first call compiles.
+The second call shows the time a user sees once the shape is warm:</p>
+<pre class="text"><code>prompt tokens first call s warm first token s decode tok/s
+          108         0.15              0.015          0.0
+          668        50.78              0.042         58.5
+         2588        41.84              0.230        123.6
+         3868        43.15              0.232         80.8</code></pre>
+<p>The context limit is 4,096 tokens. With the weights unpacked, an
+8,192-token prefill asks XLA for 16.77 GB against 15.75 GB free, so the
+server refuses longer prompts with a clear error and keeps serving:</p>
+<pre class="text"><code>HTTP 400: prompt is 6414 tokens; this server&#39;s limit is 4095
+ 
+server still answering: OK.</code></pre>
+<hr />
+<h4 id="step-13--call-a-deployed-endpoint-optional">Step 13 — Call a
+Deployed Endpoint (Optional)</h4>
+<p>The same <code>ask()</code> helper takes any OpenAI client. Add a
+Colab secret named <code>REMOTE_OPENAI_BASE_URL</code>, for example
+<code>http://&lt;tpu-ip&gt;:8000/v1</code> for the vLLM rig, and section
+4 repeats thinking off, thinking on and a 256-token decode against it.
+Without the secret it prints a skip line:</p>
+<pre class="text"><code>no REMOTE_OPENAI_BASE_URL set: skipping the deployed-endpoint comparison</code></pre>
+<p>vLLM returns reasoning in its own field only when it is started with
+a reasoning parser (<code>--reasoning-parser gemma4</code>).</p>
+<hr />
+<h4 id="step-14--llamacpp-on-the-host-cpu">Step 14 — llama.cpp on the
+Host CPU</h4>
+<p><a
+href="https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf"><code>xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf</code></a>
+holds the same trained weights as a 2.62 GB GGUF. The notebook downloads
+llama.cpp release <code>b12061</code> and starts its server with the
+reasoning parser:</p>
+<pre class="python"><code>llama = subprocess.Popen(
+    [
+        str(LLAMA_DIR / &quot;llama-server&quot;), &quot;-m&quot;, str(gguf), &quot;--host&quot;, &quot;127.0.0.1&quot;, &quot;--port&quot;, str(LLAMA_PORT),
+        &quot;-c&quot;, str(MAX_MODEL_LEN), &quot;-t&quot;, str(threads), &quot;--jinja&quot;, &quot;--reasoning-format&quot;, &quot;deepseek&quot;, &quot;--no-webui&quot;,
+    ],
+llama.cpp b12061 and 2.62 GB GGUF fetched in 27 s
+llama-server (24 threads) healthy 2.6 s after launch; first answer 3.8 s later</code></pre>
+<p>The same three requests, through the same client:</p>
+<pre class="text"><code>llama.cpp CPU: thinking off                  43   392        1.79          3.8    stop
+llama.cpp CPU: thinking on                   50   870        2.81          3.7    stop
+llama.cpp CPU: greedy 256                    21   163        1.89          4.0    stop
+ 
+greedy decode, 256 tokens: TPU 124.6 tok/s, CPU 4.0 tok/s (31.2x)</code></pre>
+<hr />
+<h4 id="compare-and-contrast">Compare and Contrast</h4>
+<p><img src="https://raw.githubusercontent.com/xbill9/colab/main/articles/gemma4-colab-tpu/medium/img/devto-gemma4-colab-tpu-table-4.png"
+alt="Table: Gemma 4 E2B on a Colab v5e-1 runtime, Ready after, Decode tok/s, Thinking-on answer" /></p>
+<hr />
+<h4 id="so-which-one">So, Which One?</h4>
+<p>For a live demo on a Colab TPU, serve with <code>tpu-jax</code>:
+chatting in under two minutes, 123.7 to 124.6 tokens per second, an
+OpenAI-compatible API that existing clients use unchanged, and a chat
+page embedded in the notebook.</p>
+<p>For many users at once, deploy vLLM, which batches requests, and
+point section 4 at it. This engine serves one request at a time.</p>
+<p>Keep llama.cpp for machines with no accelerator. On this runtime it
+starts in seconds and decodes at 4 tokens per second.</p>
+<hr />
+<h4 id="summary">Summary</h4>
+<p>The goal of this article was to serve Gemma 4 E2B on a hosted Colab
+TPU quickly enough for a live demo and to step through the common
+serving options. The key to the solution was overlapping the download
+with the chip cells, an engine that compiles only the shapes a request
+uses, and a background thread that compiles the chat shapes after the
+server is up. The Colab v5e-1 results were:</p>
+<ul>
+<li>🟢 Server and chat page up 117 seconds after Run all</li>
+<li>🟢 123.7 to 124.6 tokens per second, with thinking on or off</li>
+<li>🟢 Thinking on uses 857 tokens against 391, returned as
+<code>reasoning_content</code></li>
+<li>🟢 Seeds repeat exactly; top-k 64 costs about 4 percent</li>
+<li>🟢 Stop sequences end cleanly; over-limit prompts get an HTTP 400
+and the server keeps answering</li>
+<li>🟢 A chat page embedded in the notebook shows what is running and
+each reply's speed</li>
+<li>⚠️ One request at a time; the context limit is 4,096 tokens</li>
+<li>⚠️ A new prompt size compiles on first use, 23 to 51 seconds</li>
+<li>❌ llama.cpp has no TPU backend: 4.0 tokens per second on the host
+CPU, 31.2x slower</li>
+</ul>
+<p>Scope: Gemma 4 E2B-it QAT repack, text only, one Colab v5e-1 runtime
+on 2026-11-17, one run of the notebook through the Colab CLI, one
+request at a time, greedy decoding unless stated. The
+packed-against-unpacked comparison comes from a Colab v5e-1 run on
+2026-10-21, the vLLM start-up and top-k figures from the
+<code>tpu-vllm-v5e1-2b</code> rig on 2026-11-03, and the
+repack-against-Google figures from vLLM on one v5e chip on 2026-09-29.
+Section 4, the deployed endpoint, was skipped in this run.</p>
+<p>The strategy for serving Gemma 4 on a hosted Colab TPU was validated
+with an incremental step by step approach.</p>
+<hr />
+<h4 id="references">References</h4>
+<ul>
+<li>Repository: <a
+href="https://github.com/xbill9/colab">https://github.com/xbill9/colab</a></li>
+<li>Basic notebook: <a
+href="https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb">https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb</a></li>
+<li>Advanced notebook: <a
+href="https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb">https://github.com/xbill9/colab/blob/main/notebooks/gemma4_e2b_advanced_v5e1.ipynb</a></li>
+<li>Chat page: <a
+href="https://github.com/xbill9/colab/blob/main/ui/chat_ui.py">https://github.com/xbill9/colab/blob/main/ui/chat_ui.py</a></li>
+<li>Executed run: <a
+href="https://github.com/xbill9/colab/tree/main/runs/2026-11-17">https://github.com/xbill9/colab/tree/main/runs/2026-11-17</a></li>
+<li>Repack: <a
+href="https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text">https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text</a></li>
+<li>Exact GGUF: <a
+href="https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf">https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf</a></li>
+<li>tpu-jax engine: <a
+href="https://github.com/xbill9/tpu-jax">https://github.com/xbill9/tpu-jax</a></li>
+<li>vLLM rig and chat page: <a
+href="https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b">https://github.com/xbill9/tpu-inference/tree/main/tpu-vllm-v5e1-2b</a></li>
+<li>llama.cpp: <a
+href="https://github.com/ggml-org/llama.cpp">https://github.com/ggml-org/llama.cpp</a></li>
+</ul>
+</body>
+</html>
