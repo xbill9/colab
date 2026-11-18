@@ -15,6 +15,12 @@ chat page is up about two minutes in; the advanced notebook ran in about 15 minu
 To compare with a deployed vLLM server, add a Colab secret `REMOTE_OPENAI_BASE_URL`
 (e.g. `http://<tpu-ip>:8000/v1`) and grant the notebook access.
 
+#### The talk
+
+The deck for the live demo, in the GDE 2026 slide template: [PDF](docs/deck/gemma4-colab-tpu-gde.pdf) ·
+[PowerPoint](docs/deck/gemma4-colab-tpu-gde.pptx). Every number on it was measured on a Colab v5e-1 on
+2026-11-17 and is traced in the two articles under [`articles/`](articles/).
+
 #### Drive Colab from an agent: the Colab API and MCP endpoint
 
 Google's [Colab API and hosted MCP endpoint](https://medium.com/google-colab/the-google-colab-api-and-mcp-endpoint-for-developers-and-agents-65cfef497056)

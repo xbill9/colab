@@ -403,7 +403,7 @@ greedy decode, 256 tokens: TPU 124.6 tok/s, CPU 4.0 tok/s (31.2x)
 | Gemma 4 E2B on a Colab v5e-1 runtime | Ready after | Decode tok/s | Thinking-on answer |
 | :--- | :--- | ---: | ---: |
 | `tpu-jax` on the TPU 🥇 | 117 s after Run all | 124.6 | 7.1 s |
-| llama.cpp on the host CPU 🥈 | 2.6 s after launch | 4.0 | 230 s |
+| llama.cpp on the host CPU 🥈 | 2.6 s after launch | 4.0 | 235 s |
 | vLLM on the TPU (rig, 2026-11-03) | 17 min from TPU grant | 125 | not run here |
 
 ---
