@@ -1,0 +1,9 @@
+# Destination URLs for the LinkedIn, Slack and Google Chat posts. PENDING fails the
+# run on purpose: a post whose links do not resolve is worse than no post.
+devto-gde  = https://dev.to/gde/the-colab-mcp-endpoint-from-claude-code-set-it-up-test-it-run-a-notebook-on-a-tpu-4ck9
+medium     = https://medium.com/@xbill999/the-colab-mcp-endpoint-from-claude-code-set-it-up-test-it-run-a-notebook-on-a-tpu-a0740a36d2c1
+substack   = https://xbill9.substack.com/p/the-colab-mcp-endpoint-from-claude
+builder    = SKIP
+repo       = https://github.com/xbill9/colab
+devto-aws  = SKIP
+linkedin   = PENDING

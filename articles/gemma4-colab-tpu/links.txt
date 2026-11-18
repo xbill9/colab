@@ -1,0 +1,9 @@
+# Destination URLs for the LinkedIn, Slack and Google Chat posts. PENDING fails the
+# run on purpose: a post whose links do not resolve is worse than no post.
+devto-gde  = https://dev.to/gde/gemma-4-on-a-hosted-colab-tpu-the-qat-repack-served-in-two-minutes-360j
+medium     = https://medium.com/@xbill999/gemma-4-on-a-hosted-colab-tpu-the-qat-repack-served-in-two-minutes-4d6ce252710a
+substack   = https://xbill9.substack.com/p/gemma-4-on-a-hosted-colab-tpu-the
+builder    = SKIP
+repo       = https://github.com/xbill9/colab
+devto-aws  = SKIP
+linkedin   = PENDING
