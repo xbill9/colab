@@ -1,0 +1,15 @@
+Gemma 4 on a Hosted Colab TPU: The QAT Repack, Served in Two Minutes
+
+One notebook loads the Gemma 4 E2B QAT repack onto a Colab v5e-1, serves it behind an OpenAI-compatible endpoint with a chat page, and steps through thinking, sampling, stop sequences, long prompts and a CPU comparison.
+
+What is in it:
+
+- 🟢 Server and chat page up 117 seconds after Run all
+- 🟢 123.7 to 124.6 tokens per second, with thinking on or off
+- 🟢 Thinking on uses 857 tokens against 391, returned as reasoning_content
+- 🟢 Seeds repeat exactly; top-k 64 costs about 4 percent
+
+dev.to (Google Developer Experts): https://dev.to/gde/gemma-4-on-a-hosted-colab-tpu-the-qat-repack-served-in-two-minutes-360j
+Medium: https://medium.com/@xbill999/gemma-4-on-a-hosted-colab-tpu-the-qat-repack-served-in-two-minutes-4d6ce252710a
+Substack: https://xbill9.substack.com/p/gemma-4-on-a-hosted-colab-tpu-the
+GitHub: https://github.com/xbill9/colab

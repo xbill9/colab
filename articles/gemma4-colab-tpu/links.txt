@@ -6,4 +6,4 @@ substack   = https://xbill9.substack.com/p/gemma-4-on-a-hosted-colab-tpu-the
 builder    = SKIP
 repo       = https://github.com/xbill9/colab
 devto-aws  = SKIP
-linkedin   = PENDING
+linkedin   = https://www.linkedin.com/feed/update/urn:li:activity:7528823084011765760/

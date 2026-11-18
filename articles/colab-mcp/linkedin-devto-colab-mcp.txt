@@ -1,0 +1,15 @@
+The Colab MCP Endpoint From Claude Code: Set It Up, Test It, Run a Notebook on a TPU
+
+Google's hosted Colab MCP endpoint, step by step: a token with the colaboratory scope, a quota project, registration in Claude Code with a headers helper, and a Python runner that executes a notebook on a fresh TPU v5e-1 and deletes it.
+
+What is in it:
+
+- 🟢 tools/list answers without a token; every tool call needs the colaboratory scope and a quota project
+- 🟢 The Colab CLI's login supplies the scope, and a headersHelper hands the token to Claude Code
+- 🟢 Claude Code lists the tier and the eligible TPU specs from a plain-language prompt
+- 🟢 A v5e-1 was ready 4 seconds after create_runtime
+
+dev.to (Google Developer Experts): https://dev.to/gde/the-colab-mcp-endpoint-from-claude-code-set-it-up-test-it-run-a-notebook-on-a-tpu-4ck9
+Medium: https://medium.com/@xbill999/the-colab-mcp-endpoint-from-claude-code-set-it-up-test-it-run-a-notebook-on-a-tpu-a0740a36d2c1
+Substack: https://xbill9.substack.com/p/the-colab-mcp-endpoint-from-claude
+GitHub: https://github.com/xbill9/colab
