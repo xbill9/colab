@@ -37,6 +37,10 @@ MODEL_REV = "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
 RELEASE = "ggml-tpu-a4a425d-llama.cpp-7182ef71e-linux-x86_64"
 RELEASE_URL = f"https://github.com/xbill9/ggml-tpu/releases/download/v0.1.0/{RELEASE}.tar.gz"
 RELEASE_SHA256 = "400e2a629c28a5f262a185de09458b56ab0c19147bcd3232a4ab3aa81eea1beb"
+# The chat page from a later ggml-tpu commit: Max tokens defaults to 2048, so a reply with thinking on
+# finishes, and a reply that runs out while reasoning says so instead of showing a blank answer.
+CHAT_UI_URL = "https://raw.githubusercontent.com/xbill9/ggml-tpu/ef6e15e627d9991584837cc73620456d57290d36/ui/chat_ui.py"
+CHAT_UI_SHA256 = "3ec4767bc2ccbe39e57e566cfae1d0be934664a5595588a9e060001463f05e24"
 
 DOWNLOAD = """
 import sys
@@ -57,6 +61,10 @@ if hashlib.sha256(tarball.read_bytes()).hexdigest() != RELEASE_SHA256:
 with tarfile.open(tarball) as tf:
     tf.extractall(WORK)
 BIN = WORK / RELEASE
+chat_ui = urllib.request.urlopen(CHAT_UI_URL, timeout=60).read()
+if hashlib.sha256(chat_ui).hexdigest() != CHAT_UI_SHA256:
+    raise RuntimeError("chat_ui.py: SHA-256 does not match ggml-tpu ef6e15e")
+(BIN / "chat_ui.py").write_bytes(chat_ui)
 print((BIN / "VERSION").read_text())
 
 # libtpu ships with JAX on Colab TPU runtimes; install it only if it is missing
