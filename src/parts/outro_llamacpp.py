@@ -11,7 +11,7 @@
 #
 # Type into the chat page above. Its side panel turns thinking on and off and shows each reply's speed,
 # measured in the browser and by `llama-server`. From code, any OpenAI client works against
-# `http://127.0.0.1:8080/v1` inside this runtime.
+# `http://127.0.0.1:8000/v1` inside this runtime.
 #
 # When you are done, disconnect the runtime (Runtime, then Disconnect and delete runtime) so it stops
 # using compute units.

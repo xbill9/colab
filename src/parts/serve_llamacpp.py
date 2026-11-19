@@ -95,7 +95,25 @@ if model_dl.returncode != 0:
 MODEL_PATH = out.strip().splitlines()[-1]
 print(f"model ready {time.perf_counter() - T_START:.0f} s after cell 1 started: {MODEL_PATH}")
 
-PORT = 8080
+PORT = 8000  # 8080 was already taken on a Colab TPU runtime (2026-11-19)
+UI_PORT = 8765
+
+# A re-run of this cell first stops the servers the previous run started.
+for name in ("ui", "server"):
+    proc = globals().get(name)
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+import socket
+
+for port in (PORT, UI_PORT):
+    with socket.socket() as sock:
+        if sock.connect_ex(("127.0.0.1", port)) == 0:
+            raise RuntimeError(f"port {port} is already in use; Runtime, then Restart session, then run all")
 env = dict(
     os.environ,
     GGML_BACKEND_PATH=str(BIN / "libggml-tpu.so"),
@@ -144,7 +162,6 @@ print(
     f"llama-server ready in {time.perf_counter() - t0:.1f} s, {time.perf_counter() - T_START:.0f} s after cell 1 started"
 )
 
-UI_PORT = 8765
 ui = subprocess.Popen(
     [
         sys.executable,
