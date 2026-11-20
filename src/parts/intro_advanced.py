@@ -71,7 +71,7 @@
 #
 # * **Runtime.** Runtime, then Change runtime type, then **v5e-1 TPU**.
 # * **No token.** Every download is public. Nothing asks for a Hugging Face token.
-# * **Time.** The chat page was up 46 and 49 seconds after the first cell started, in two runs on a
-#   Colab v5e-1 on 2026-11-20. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
+# * **Time.** The chat page was up 46 to 53 seconds after the first cell started, in three runs on
+#   a Colab v5e-1 on 2026-11-20. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
 #   llama.cpp section is a third of that.
 # * **Safety.** Nothing is uploaded. The servers listen on `127.0.0.1` inside the Colab VM.

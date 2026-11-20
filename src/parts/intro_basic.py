@@ -13,7 +13,7 @@
 #
 # This notebook loads Gemma 4 E2B onto one Colab TPU v5e chip, serves it behind an
 # OpenAI-compatible endpoint, and opens a chat page right here in the notebook. On a Colab v5e-1 on
-# 2026-11-20 the page was up 46 seconds after the first cell started.
+# 2026-11-20 the page was up 46 to 53 seconds after the first cell started, in three runs.
 #
 # ### The model
 #

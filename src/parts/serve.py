@@ -851,7 +851,7 @@ except ImportError:
 # %% [markdown]
 # **What you should see.** The compile finishing while or just after the download does, the weights
 # expanding on the chip in a few seconds, then the chat page. On a Colab v5e-1 on 2026-11-20 the page
-# was up 46 seconds after the first cell started. The page's side panel shows the model,
+# was up 46 to 53 seconds after the first cell started, in three runs. The page's side panel shows the model,
 # the server version and the request counters, all read from the server above. **You can chat with
 # the model now**. Requests from the page and from any later cell take turns on the chip.
 #
