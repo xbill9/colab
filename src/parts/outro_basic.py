@@ -37,6 +37,8 @@
 
 # %%
 # Cell 3.1: one request through the OpenAI client, to check the endpoint from code
+if OPENAI_INSTALL is not None and OPENAI_INSTALL.wait() != 0:
+    raise RuntimeError(f"pip install openai failed:\n{(WORK / 'prep.log').read_text()[-2000:]}")
 from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="not-needed")

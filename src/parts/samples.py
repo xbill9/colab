@@ -24,6 +24,8 @@
 
 # %%
 # Cell 3.1: the client and the measuring helper
+if OPENAI_INSTALL is not None and OPENAI_INSTALL.wait() != 0:
+    raise RuntimeError(f"pip install openai failed:\n{(WORK / 'prep.log').read_text()[-2000:]}")
 from openai import OpenAI
 
 t0 = time.perf_counter()
@@ -321,23 +323,21 @@ else:
 # %% [markdown]
 # ## 5. llama.cpp on the host CPU
 #
-# [`xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf`](https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf)
-# holds the same trained 4-bit weights as a GGUF file for llama.cpp. llama.cpp has no TPU backend, so
-# here it runs on the Colab VM's CPU, next to the TPU. It has nothing to compile, which makes it a
+# llama.cpp reads the same GGUF file the TPU engine was loaded from in section 2. llama.cpp has no TPU
+# backend, so here it runs on the Colab VM's CPU, next to the TPU. It has nothing to compile, which makes it a
 # useful start-up comparison; the decode rate shows what the TPU adds.
 #
 # The llama.cpp build is pinned to release `b12061`, and the server is started with its reasoning
 # parser so thinking arrives as `reasoning_content`, the same as from the TPU server.
 
 # %%
-# Cell 5.1: download llama.cpp and the GGUF, start llama-server, time it to the first answer
+# Cell 5.1: download llama.cpp, start llama-server on the same GGUF, time it to the first answer
 import tarfile
 
 LLAMA_TAG = "b12061"
-GGUF_REPO, GGUF_REV = "xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf", "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
-GGUF_FILE = "gemma-4-E2B-it-q4_0-exact.gguf"
 
-print("downloading llama.cpp (about 23 MB) and the GGUF (2.62 GB); this took 27 s on 2026-11-17 ...", flush=True)
+# The GGUF is the file the TPU engine was loaded from in section 2, already on disk.
+print("downloading llama.cpp (about 23 MB); the GGUF is the one section 2 downloaded ...", flush=True)
 t_cpu0 = time.perf_counter()
 tgz = WORK / f"llama-{LLAMA_TAG}.tar.gz"
 if not tgz.exists():
@@ -348,18 +348,9 @@ if not tgz.exists():
 with tarfile.open(tgz) as t:
     t.extractall(WORK, filter="data")
 LLAMA_DIR = WORK / f"llama-{LLAMA_TAG}"
-
-proc = subprocess.run(
-    [sys.executable, "-c", DOWNLOAD.replace("snapshot_download(sys.argv[1], revision=sys.argv[2])",
-     f"snapshot_download(sys.argv[1], revision=sys.argv[2], allow_patterns=['{GGUF_FILE}'])"),
-     GGUF_REPO, GGUF_REV],
-    capture_output=True, text=True,
-)  # fmt: skip
-if proc.returncode != 0:
-    raise RuntimeError(f"GGUF download failed:\n{proc.stderr[-2000:]}")
-gguf = pathlib.Path(proc.stdout.strip().splitlines()[-1]) / GGUF_FILE
+gguf = DL["path"]
 t_cpu_files = time.perf_counter() - t_cpu0
-print(f"llama.cpp {LLAMA_TAG} and {gguf.stat().st_size / 1e9:.2f} GB GGUF fetched in {t_cpu_files:.0f} s")
+print(f"llama.cpp {LLAMA_TAG} fetched in {t_cpu_files:.0f} s; GGUF {gguf.name}, {gguf.stat().st_size / 1e9:.2f} GB")
 
 LLAMA_PORT = 8081
 threads = os.cpu_count()
@@ -414,7 +405,7 @@ _ = ask("Describe the water cycle in about 150 words.", cli=cpu, model=cpu_model
 # %%
 # Cell 6.1: start-up and per-request results
 print("start-up, seconds since the first cell started")
-for stage, t in STAGES.items():
+for stage, t in sorted(STAGES.items(), key=lambda kv: kv[1]):
     print(f"  {stage:22s} {t:7.0f}")
 print(
     f"\nllama.cpp on the CPU: files {LLAMA_START['files_s']:.0f} s, launch to healthy "

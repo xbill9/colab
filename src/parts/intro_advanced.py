@@ -18,55 +18,60 @@
 # llama.cpp.
 #
 # The [basic notebook](https://colab.research.google.com/github/xbill9/colab/blob/main/notebooks/gemma4_e2b_basic_v5e1.ipynb)
-# runs sections 1 and 2 of this one: the model served and the chat page up, in about two minutes.
+# runs sections 1 and 2 of this one: the model served and the chat page up, in under a minute.
 # This notebook continues from there.
 #
 # ### The model
 #
-# [`xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text`](https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text)
-# is an exact repack of Google's quantization-aware-trained (QAT) Gemma 4 E2B weights. Google trained
-# every weight onto a 4-bit grid; the repack stores those trained 4-bit levels and their trained
-# scales in the W4A16 format, with the vision and audio towers removed. It is public and ungated.
+# Google trained every Gemma 4 E2B weight onto a 4-bit grid (quantization-aware training, QAT).
+# [`xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf`](https://huggingface.co/xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf)
+# stores those trained values as one GGUF file: every layer and both embedding tables in Q4_0, 32
+# 4-bit values and one step per block, text only. It is the smallest build, so the download is
+# shortest. The engine expands it to bf16 on the chip. The config, tokenizer and chat template (32 MB)
+# come from the W4A16 repack below. Both are public and ungated.
 #
 # | Build | Download |
 # | --- | ---: |
 # | Google's `google/gemma-4-E2B-it-qat-w4a16-ct` | 8.32 GB |
 # | The repack, `xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct` | 7.51 GB |
-# | **The repack, text only (used here)** | **6.56 GB** |
-# | The repack, text only, embeddings in int4 too (`-text-emb4`) | 2.83 GB |
+# | The repack, text only (`-text`) | 6.56 GB |
+# | **The Q4_0 GGUF (used here)** | **2.62 GB** |
 #
-# Google's export re-rounds every weight onto a new grid; the repack keeps the trained one. Served by
-# vLLM on one v5e chip the two decode at the same speed (136.6 and 136.5 tokens per second) and the
-# repack scores 2.4 points higher on a 3,880-record test suite. The `-text-emb4` build is the smallest,
-# but the engine used here needs the embedding tables in bf16, so this notebook uses `-text`.
+# Google's W4A16 export re-rounds every weight onto a new grid; the repack keeps the trained one.
+# Served by vLLM on one v5e chip the two decode at the same speed (136.6 and 136.5 tokens per second)
+# and the repack scores 2.4 points higher on a 3,880-record test suite. Measured against Google's
+# full-precision QAT checkpoint on 2026-11-20, 96.8% of the GGUF's layer values are bit-identical,
+# against 90.0% of the `-text` repack's: the GGUF stores each block's step in fp16, the repack in bf16.
+# The repack's embedding tables are an exact bf16 copy; 96.9% of the GGUF's are bit-identical.
 #
 # ### The serving engine, and why this one
 #
-# The goal is a model you can talk to a few minutes after **Run all**. The engine is
-# [`tpu-jax`](https://github.com/xbill9/tpu-jax), a Gemma 4 E2B decoder in pure JAX. It reads the
-# checkpoint, puts the weights on the chip and compiles only the shapes a request uses, so the first
-# answer arrives after one short compile. On a Colab v5e-1 on 2026-10-21 this engine loaded the repack
-# in 7 to 16 seconds and compiled its first request in 23 to 40 seconds. vLLM on the same chip took 17 minutes from TPU grant
+# The goal is a model you can talk to soon after **Run all**. The engine is
+# [`tpu-jax`](https://github.com/xbill9/tpu-jax), a Gemma 4 E2B decoder in pure JAX. It compiles only
+# the shapes a request uses, and XLA needs only the weights' shapes to compile, so this notebook
+# compiles the first request's shape during the download. On a Colab v5e-1 on 2026-11-20 that compile
+# took 26 seconds and the GGUF's weights reached the chip 7 seconds after it. vLLM on the same chip took 17 minutes from TPU grant
 # to its first answer when measured on 2026-11-03, and 16 on a container restart (most of it compiling), which is why vLLM appears
 # here as an optional remote endpoint rather than as the local server.
 #
 # ### How the notebook runs
 #
-# 1. **Start the download, then read the chip.** The 6.6 GB checkpoint downloads in the background
+# 1. **Start the download, then read the chip.** The 2.62 GB GGUF downloads in the background
 #    while the first cells report on the TPU.
-# 2. **Load and serve.** The engine loads, compiles one request shape, and starts an
+# 2. **Load and serve.** The engine compiles one request shape during the download, puts the weights
+#    on the chip, and starts an
 #    OpenAI-compatible server and a browser chat page. The cell prints how long all of this took.
 #    **From here you can test the model yourself.**
 # 3. **Samples.** Each common serving option, called through the OpenAI client.
 # 4. **A deployed endpoint (optional).** The same calls against a vLLM server you run elsewhere.
-# 5. **llama.cpp on the host CPU.** The repack's exact GGUF build, for a start-up and speed
-#    comparison.
+# 5. **llama.cpp on the host CPU.** The same GGUF file, for a start-up and speed comparison.
 # 6. **Summary** of every number measured in this run.
 #
 # ### Before you start
 #
 # * **Runtime.** Runtime, then Change runtime type, then **v5e-1 TPU**.
 # * **No token.** Every download is public. Nothing asks for a Hugging Face token.
-# * **Time.** The chat page is up about two minutes after Run all. The whole notebook ran in 901 s,
-#   about 15 minutes, on a Colab v5e-1 on 2026-11-17; the llama.cpp section is a third of that.
+# * **Time.** The chat page was up 46 and 49 seconds after the first cell started, in two runs on a
+#   Colab v5e-1 on 2026-11-20. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
+#   llama.cpp section is a third of that.
 # * **Safety.** Nothing is uploaded. The servers listen on `127.0.0.1` inside the Colab VM.

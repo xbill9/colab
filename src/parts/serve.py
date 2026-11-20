@@ -9,10 +9,11 @@
 # %% [markdown]
 # ## 1. Start the download, then read the chip
 #
-# The first cell starts the checkpoint download in its own process and returns immediately. The
-# download runs while the cells after it read the chip, so it costs no waiting time of its own.
-# Every checkpoint and the engine are pinned to a fixed revision, so the bytes you run are the bytes
-# this notebook was written against.
+# The first cell fetches the config, tokenizer and chat template (32 MB), then starts the 2.62 GB GGUF
+# download in its own process, with the engine's code and the OpenAI client installing beside it. It
+# returns in about two seconds. The download runs while the next cells read the chip and compile, so
+# it costs no waiting time of its own. Every file and the engine are pinned to a fixed revision, so
+# the bytes you run are the bytes this notebook was written against.
 
 # %%
 # Cell 1.1: start the checkpoint download in the background, with a live progress bar
@@ -28,34 +29,66 @@ from IPython.display import HTML, display
 T_START = time.perf_counter()
 STAGES = {}  # stage name -> seconds since T_START; the summary at the end reads this
 
+# The weights: Gemma 4 E2B's QAT 4-bit weights as one Q4_0 GGUF file (2.62 GB), loaded onto the chip
+# directly. The safetensors repo supplies only config.json, the tokenizer and the chat template.
+GGUF_REPO = "xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf"
+GGUF_FILE = "gemma-4-E2B-it-q4_0-exact.gguf"
+GGUF_REV = "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
 MODEL_ID = "xbill9/gemma-4-E2B-it-qat-q4_0-w4a16-ct-text"
 MODEL_REV = "315aec06cff196fd6479aa2669bf9379b0d0268a"
 WORK = pathlib.Path("/content" if os.path.isdir("/content") else os.path.expanduser("~/gemma4-colab"))
 WORK.mkdir(parents=True, exist_ok=True)
 
-# What to expect: the size comes from the Hub, the time from the runs this notebook was tested with.
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, snapshot_download
 
-files = HfApi(token=False).model_info(MODEL_ID, revision=MODEL_REV, files_metadata=True).siblings  # public: no token
-TOTAL_BYTES = sum(f.size or 0 for f in files)
-print(f"model:    {MODEL_ID}")
-print(f"revision: {MODEL_REV[:8]}, {len(files)} files, {TOTAL_BYTES / 1e9:.2f} GB")
-print("estimate: about a minute. On a Colab v5e-1 on 2026-11-17 the download finished 63 and 66 s")
-print("          after this cell started. The bar below measures this runtime's own rate.")
+# The small files first, in this cell (about a second): the engine compiles from config.json while
+# the weights download.
+MODEL_DIR = pathlib.Path(
+    snapshot_download(MODEL_ID, revision=MODEL_REV, ignore_patterns=["*.safetensors"], token=False)
+)
+gguf_meta = HfApi(token=False).model_info(GGUF_REPO, revision=GGUF_REV, files_metadata=True).siblings
+TOTAL_BYTES = next(f.size for f in gguf_meta if f.rfilename == GGUF_FILE)  # public: no token
+print(
+    f"config and tokenizer: {MODEL_ID} @ {MODEL_REV[:8]}, {sum(f.stat().st_size for f in MODEL_DIR.iterdir()) / 1e6:.0f} MB"
+)
+print(f"weights:              {GGUF_REPO} @ {GGUF_REV[:8]}, {GGUF_FILE}, {TOTAL_BYTES / 1e9:.2f} GB")
+print("estimate: about 25 s. On a Colab v5e-1 on 2026-11-20 this file downloaded in 25.0 s.")
+print("          The bar below measures this runtime's own rate.")
 print("          The next cells run while it downloads; there is no need to wait here.\n", flush=True)
 
 DOWNLOAD = """
 import sys
-from huggingface_hub import snapshot_download
-print(snapshot_download(sys.argv[1], revision=sys.argv[2]))
+from huggingface_hub import hf_hub_download
+print(hf_hub_download(sys.argv[1], sys.argv[2], revision=sys.argv[3], token=False))
 """
 download_log = open(WORK / "download.log", "w")
 download = subprocess.Popen(
-    [sys.executable, "-c", DOWNLOAD, MODEL_ID, MODEL_REV],
+    [sys.executable, "-c", DOWNLOAD, GGUF_REPO, GGUF_FILE, GGUF_REV],
     stdout=subprocess.PIPE,
     stderr=download_log,
     text=True,
 )
+
+# The engine's code (tpu-jax, pinned) and the OpenAI client install in the background too.
+import importlib.util  # noqa: E402
+
+TPU_JAX_COMMIT = "4b9f8e94619f1995206617e07e3c4ac62685d47b"
+ENGINE_DIR = WORK / "tpu-jax"
+prep_steps = []
+if not (ENGINE_DIR / ".git").exists():
+    prep_steps.append(f"git clone -q https://github.com/xbill9/tpu-jax {ENGINE_DIR}")
+prep_steps.append(f"git -C {ENGINE_DIR} checkout -q {TPU_JAX_COMMIT}")
+missing = [p for p in ("safetensors", "tokenizers") if importlib.util.find_spec(p) is None]
+if missing:
+    prep_steps.append(f"{sys.executable} -m pip install -q {' '.join(missing)}")
+prep_log = open(WORK / "prep.log", "w")
+# The OpenAI client is first used in section 3, so its install runs on its own and nothing waits for it.
+OPENAI_INSTALL = None
+if importlib.util.find_spec("openai") is None:
+    OPENAI_INSTALL = subprocess.Popen(
+        [sys.executable, "-m", "pip", "install", "-q", "openai"], stdout=prep_log, stderr=prep_log
+    )
+PREP = subprocess.Popen(["bash", "-c", "set -e; " + "; ".join(prep_steps)], stdout=prep_log, stderr=prep_log)
 
 
 def bytes_received():
@@ -75,7 +108,7 @@ def bar(frac, text):
     )
 
 
-DL = {"updates": 0}  # filled by the watcher: "dir", "seconds", "error", and how often it redrew the bar
+DL = {"updates": 0}  # filled by the watcher: "path", "seconds", "error", and how often it redrew the bar
 
 
 def watch_download(handle):
@@ -100,10 +133,11 @@ def watch_download(handle):
         DL["updates"] += 1
         time.sleep(1)
     DL["seconds"] = time.perf_counter() - t0
+    DL["done_at"] = time.perf_counter() - T_START
     out = download.stdout.read()
     download_log.close()
     if download.returncode == 0:
-        DL["dir"] = pathlib.Path(out.strip().splitlines()[-1])
+        DL["path"] = pathlib.Path(out.strip().splitlines()[-1])
         handle.update(bar(1.0, f"downloaded {TOTAL_BYTES / 1e9:.2f} GB in {DL['seconds']:.0f} s"))
     else:
         DL["error"] = (WORK / "download.log").read_text()[-2000:]
@@ -165,107 +199,287 @@ STAGES["chip info"] = time.perf_counter() - T_START
 # **What you should see.** One device of kind `TPU v5 lite` with about 16.9 GB of HBM. The host CPU
 # count matters again in section 5, where llama.cpp runs on it.
 
-# %%
-# Cell 1.3: what the chip does on two simple kernels: a bf16 matmul and a large copy
-import timeit
-
-
-def bench(fn, *args, reps=20):
-    jax.block_until_ready(fn(*args))  # compile and warm up
-    t = timeit.timeit(lambda: jax.block_until_ready(fn(*args)), number=reps)
-    return t / reps
-
-
-N = 8192
-a = jnp.ones((N, N), jnp.bfloat16)
-b = jnp.ones((N, N), jnp.bfloat16)
-t_mm = bench(jax.jit(jnp.matmul), a, b)
-print(f"bf16 matmul {N}x{N}: {t_mm * 1e3:.2f} ms  ->  {2 * N**3 / t_mm / 1e12:.0f} TFLOP/s")
-
-x = jnp.ones((1024, 1024, 512), jnp.bfloat16)  # 1 GiB
-t_cp = bench(jax.jit(lambda v: v + 1), x)
-moved = 2 * x.size * x.dtype.itemsize  # read once, write once
-print(f"1 GiB elementwise:     {t_cp * 1e3:.2f} ms  ->  {moved / t_cp / 1e9:.0f} GB/s of HBM traffic")
-del a, b, x
-
-# %% [markdown]
-# **What these numbers mean.** The matmul figure is the chip's dense bf16 compute; the copy figure is
-# its memory bandwidth. Compare both with Google's published
-# [v5e specification](https://cloud.google.com/tpu/docs/v5e). Decoding one token at a time is
-# bandwidth-bound: every token reads all the weights from HBM, which is why a 4-bit checkpoint
-# decodes faster than a 16-bit one of the same model.
-
 # %% [markdown]
 # ## 2. Load and serve
 #
 # Three steps, timed separately:
 #
-# 1. **Engine.** Clone `tpu-jax` at a fixed commit, wait for the download, and load the weights onto
-#    the chip. `DEQUANT_AT_LOAD` picks how: `True` unpacks the 4-bit weights to bf16 once, at load;
-#    `False` keeps them packed and unpacks them at every step. Both give the same weights and the same
-#    tokens. Measured on a Colab v5e-1 on 2026-10-21, unpacking once decoded at 131 tokens per second
-#    against 103 and used 9.3 GB of HBM against 6.6 GB. The chip has room, so the default is `True`.
-# 2. **One compile.** XLA compiles a program for each request shape. One short request compiles the
-#    shape most chat turns use. Other shapes (long prompts, long answers) compile the first time
-#    they are used, and the samples below show that cost where it happens.
+# 1. **One compile, during the download.** XLA compiles a program for each request shape, and it
+#    needs only the shapes of the weights, not their values. The cell reads every tensor's shape from
+#    the GGUF's header (one 16 MB request), loads the engine with zero weights of those shapes and runs
+#    one short request, which compiles the shape most chat turns use. Other shapes (long prompts, long
+#    answers) compile the first time they are used, or in the background in cell 2.6.
+# 2. **The weights.** When the download is done, the GGUF's 4-bit blocks go to the chip and are
+#    expanded there to bf16, in place of the zeros. The shapes match, so nothing compiles again. bf16
+#    weights decode faster than 4-bit ones unpacked at every step (131 against 103 tokens per second,
+#    measured on a Colab v5e-1 on 2026-10-21), and at 9.3 GB they fit this chip's 16.9 GB of HBM.
 # 3. **Server and chat page.** An OpenAI-compatible HTTP server over the engine, and this repo's
 #    [`ui/chat_ui.py`](https://github.com/xbill9/colab/blob/main/ui/chat_ui.py), a chat page that
 #    shows what is running and lets you chat in the browser.
 
 # %%
 # Cell 2.1: the engine, pinned, and the checkpoint on the chip
-import importlib.util
 import json
 
-missing = [p for p in ("safetensors", "tokenizers", "openai") if importlib.util.find_spec(p) is None]
-if missing:
-    print(f"installing {', '.join(missing)} ...", flush=True)
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", *missing], check=True)
-
-TPU_JAX_COMMIT = "4b9f8e94619f1995206617e07e3c4ac62685d47b"
-ENGINE_DIR = WORK / "tpu-jax"
-if not (ENGINE_DIR / ".git").exists():
-    print("cloning the tpu-jax engine ...", flush=True)
-    subprocess.run(["git", "clone", "-q", "https://github.com/xbill9/tpu-jax", str(ENGINE_DIR)], check=True)
-subprocess.run(["git", "-C", str(ENGINE_DIR), "checkout", "-q", TPU_JAX_COMMIT], check=True)
+if PREP.wait() != 0:
+    raise RuntimeError(f"engine setup failed:\n{(WORK / 'prep.log').read_text()[-2000:]}")
 sys.path.insert(0, str(ENGINE_DIR))
 from jax_engine import JaxGemmaEngine  # noqa: E402
 
-t0 = time.perf_counter()
-if DOWNLOAD_THREAD.is_alive():
-    print("waiting for the checkpoint download (progress bar in cell 1.1) ...", flush=True)
-DOWNLOAD_THREAD.join()
-if "error" in DL:
-    raise RuntimeError(f"download failed:\n{DL['error']}")
-MODEL_DIR = DL["dir"]
-size = sum(f.stat().st_size for f in MODEL_DIR.glob("*.safetensors"))
-STAGES["download finished"] = time.perf_counter() - T_START
-print(
-    f"checkpoint: {size / 1e9:.2f} GB, downloaded in {DL['seconds']:.0f} s, done {STAGES['download finished']:.0f} s "
-    f"after the first cell (this cell waited {time.perf_counter() - t0:.0f} s for it; the bar redrew {DL['updates']} times)"
+
+import io  # noqa: E402
+import re  # noqa: E402
+import struct  # noqa: E402
+import urllib.request  # noqa: E402
+
+import numpy as np  # noqa: E402
+import safetensors.flax  # noqa: E402
+from ports.gemma4.jax_e_loader import convert_safetensors_to_jax_params  # noqa: E402
+
+import datetime  # noqa: E402
+
+import jinja2  # noqa: E402
+import jinja2.ext  # noqa: E402
+import jinja2.sandbox  # noqa: E402
+from tokenizers import Tokenizer  # noqa: E402
+
+
+# The tokenizer and chat template come straight from `tokenizers` and Jinja: transformers would import
+# PyTorch first, which took about 10 s here. On 2026-11-20 this matched transformers' AutoTokenizer on
+# every test conversation (16 of 16, thinking on and off) and on 600 of 600 random decodes.
+class ChatTokenizer:
+    """The checkpoint's tokenizer.json and chat_template.jinja, rendered the way transformers renders
+    them (a sandboxed Jinja environment with trim_blocks, lstrip_blocks and loop controls)."""
+
+    def __init__(self, model_dir):
+        self.tk = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
+        cfg = json.loads((model_dir / "tokenizer_config.json").read_text())
+        tok = lambda t: t["content"] if isinstance(t, dict) else t  # noqa: E731
+        self.bos_token, self.eos_token = tok(cfg.get("bos_token")), tok(cfg.get("eos_token"))
+        self.bos_token_id = self.tk.token_to_id(self.bos_token)
+        env = jinja2.sandbox.ImmutableSandboxedEnvironment(
+            trim_blocks=True, lstrip_blocks=True, extensions=[jinja2.ext.loopcontrols]
+        )
+
+        def raise_exception(message):
+            raise jinja2.exceptions.TemplateError(message)
+
+        env.filters["tojson"] = lambda x, ensure_ascii=False, indent=None, separators=None, sort_keys=False: json.dumps(
+            x, ensure_ascii=ensure_ascii, indent=indent, separators=separators, sort_keys=sort_keys
+        )
+        env.globals["raise_exception"] = raise_exception
+        env.globals["strftime_now"] = lambda fmt: datetime.datetime.now().strftime(fmt)
+        self.template = env.from_string((model_dir / "chat_template.jinja").read_text())
+
+    def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=False, **kwargs):
+        text = self.template.render(
+            messages=messages,
+            add_generation_prompt=add_generation_prompt,
+            bos_token=self.bos_token,
+            eos_token=self.eos_token,
+            **kwargs,
+        )
+        return self.encode(text) if tokenize else text
+
+    def encode(self, text, add_special_tokens=False):
+        return self.tk.encode(text, add_special_tokens=add_special_tokens).ids
+
+    def decode(self, ids, skip_special_tokens=False):
+        return self.tk.decode(list(ids), skip_special_tokens=skip_special_tokens)
+
+    def convert_tokens_to_ids(self, token):
+        return self.tk.token_to_id(token)
+
+
+# --- The GGUF, read as the tensors tpu-jax reads from safetensors ---------------------------------
+# GGUF names -> the safetensors names the engine expects. rope_freqs is skipped: the engine computes
+# RoPE from config.json.
+GGUF_TOP = {
+    "token_embd.weight": "embed_tokens.weight",
+    "per_layer_token_embd.weight": "embed_tokens_per_layer.weight",
+    "per_layer_model_proj.weight": "per_layer_model_projection.weight",
+    "per_layer_proj_norm.weight": "per_layer_projection_norm.weight",
+    "output_norm.weight": "norm.weight",
+}
+GGUF_BLK = {
+    "attn_q": "self_attn.q_proj.weight", "attn_k": "self_attn.k_proj.weight",
+    "attn_v": "self_attn.v_proj.weight", "attn_output": "self_attn.o_proj.weight",
+    "attn_q_norm": "self_attn.q_norm.weight", "attn_k_norm": "self_attn.k_norm.weight",
+    "ffn_gate": "mlp.gate_proj.weight", "ffn_up": "mlp.up_proj.weight", "ffn_down": "mlp.down_proj.weight",
+    "inp_gate": "per_layer_input_gate.weight", "proj": "per_layer_projection.weight",
+    "attn_norm": "input_layernorm.weight", "post_attention_norm": "post_attention_layernorm.weight",
+    "ffn_norm": "pre_feedforward_layernorm.weight", "post_ffw_norm": "post_feedforward_layernorm.weight",
+    "post_norm": "post_per_layer_input_norm.weight", "layer_output_scale": "layer_scalar",
+}  # fmt: skip
+GGUF_F32, GGUF_Q4_0 = 0, 2
+
+
+def safetensors_name(gguf_name):
+    if gguf_name in GGUF_TOP:
+        return "model.language_model." + GGUF_TOP[gguf_name]
+    m = re.fullmatch(r"blk\.(\d+)\.(.+)\.weight", gguf_name)
+    if not m or m.group(2) not in GGUF_BLK:
+        raise KeyError(f"GGUF tensor {gguf_name} has no tpu-jax counterpart")
+    return f"model.language_model.layers.{m.group(1)}.{GGUF_BLK[m.group(2)]}"
+
+
+def gguf_index(f):
+    """GGUF v3 header -> (offset of the tensor data, [(safetensors name, [out, in] shape, type, offset)])."""
+    r = lambda fmt: struct.unpack("<" + fmt, f.read(struct.calcsize("<" + fmt)))  # noqa: E731
+    if f.read(4) != b"GGUF":
+        raise ValueError("not a GGUF file")
+    r("I")
+    n_tensors, n_kv = r("QQ")
+    align, fixed = 32, {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+    fmt = {0: "B", 1: "b", 2: "H", 3: "h", 4: "I", 5: "i", 6: "f", 7: "?", 10: "Q", 11: "q", 12: "d"}
+
+    def value(t):  # metadata values are skipped, except the data alignment
+        if t == 8:
+            return f.read(r("Q")[0])
+        if t == 9:
+            at, n = r("IQ")
+            if at in fixed:
+                return f.seek(fixed[at] * n, 1)
+            return [value(at) for _ in range(n)]
+        return r(fmt[t])[0]
+
+    for _ in range(n_kv):
+        key = f.read(r("Q")[0]).decode()
+        v = value(r("I")[0])
+        if key == "general.alignment":
+            align = v
+    index = []
+    for _ in range(n_tensors):
+        name = f.read(r("Q")[0]).decode()
+        dims = r("Q" * r("I")[0])
+        t, off = r("IQ")
+        if name != "rope_freqs.weight":
+            index.append((safetensors_name(name), tuple(int(d) for d in reversed(dims)), t, off))
+    p = f.tell()
+    return p + (-p % align), index
+
+
+def q4_0_expand(blocks):
+    """uint8 [rows, n, 18] ggml block_q4_0 -> bf16 [rows, n*32]. A block is an fp16 step d and 16 bytes:
+    low nibbles are elements 0..15, high nibbles 16..31, each q + 8. The value is bf16(q * d), the
+    single rounding the engine's own 4-bit unpack gives."""
+    d = jax.lax.bitcast_convert_type(
+        blocks[..., 0].astype(jnp.uint16) | (blocks[..., 1].astype(jnp.uint16) << 8), jnp.float16
+    )
+    qs = blocks[..., 2:]
+    q = jnp.concatenate([qs & 0xF, qs >> 4], axis=-1).astype(jnp.int32) - 8
+    v = (q.astype(jnp.float32) * d.astype(jnp.float32)[..., None]).astype(jnp.bfloat16)
+    return v.reshape(blocks.shape[0], -1)
+
+
+q4_0_expand_jit = jax.jit(q4_0_expand)
+q4_0_expand_into = jax.jit(
+    lambda out, blocks, row: jax.lax.dynamic_update_slice(out, q4_0_expand(blocks), (row, 0)), donate_argnums=0
 )
+CHUNK_ROWS = 16384  # the two embedding tables expand in chunks, so neither needs an f32 copy
 
-from transformers import AutoTokenizer  # noqa: E402
 
-TOK = AutoTokenizer.from_pretrained(MODEL_DIR)
+def gguf_to_chip(path, data_start, index):
+    """Only the 4-bit blocks cross to the chip (2.6 GB); each tensor is expanded to bf16 there."""
+    mm = np.memmap(path, np.uint8, "r")
+    out = {}
+    for name, shape, t, off in index:
+        start = data_start + off
+        if t == GGUF_F32:
+            n = int(np.prod(shape))
+            out[name] = jnp.asarray(np.frombuffer(mm[start : start + 4 * n], np.float32).reshape(shape), jnp.bfloat16)
+        elif t == GGUF_Q4_0:
+            rows, cols = shape
+            blocks = mm[start : start + rows * cols // 32 * 18].reshape(rows, cols // 32, 18)
+            if rows <= CHUNK_ROWS:
+                out[name] = q4_0_expand_jit(np.ascontiguousarray(blocks))
+            else:
+                w = jnp.zeros(shape, jnp.bfloat16)
+                for r0 in range(0, rows, CHUNK_ROWS):
+                    w = q4_0_expand_into(w, np.ascontiguousarray(blocks[r0 : r0 + CHUNK_ROWS]), r0)
+                out[name] = w
+        else:
+            raise TypeError(f"{name}: GGUF type {t} is neither F32 nor Q4_0")
+    return jax.block_until_ready(out)
+
+
+def engine_load(engine, tensors):
+    """ENGINE.load, unchanged, fed `tensors` in place of the files it would read: it lists the folder's
+    *.safetensors and reads each with safetensors.flax.load_file, so the folder holds one placeholder
+    and that one call returns `tensors`."""
+    folder = WORK / "engine-dir"
+    folder.mkdir(exist_ok=True)
+    for f in MODEL_DIR.iterdir():
+        (folder / f.name).unlink(missing_ok=True)
+        (folder / f.name).symlink_to(f.resolve())
+    (folder / "gguf.safetensors").write_bytes(b"")
+    real = safetensors.flax.load_file
+    safetensors.flax.load_file = lambda p, *a, **k: tensors if p.endswith("gguf.safetensors") else real(p, *a, **k)
+    try:
+        engine.load(local_dir=str(folder))
+    finally:
+        safetensors.flax.load_file = real
+
+
+TOK = ChatTokenizer(MODEL_DIR)
 GEN_CFG = json.loads((MODEL_DIR / "generation_config.json").read_text())
 EOS_IDS = GEN_CFG["eos_token_id"]
 # Prompt plus answer. At 8,192 the prefill of a long prompt needs more HBM than this chip has left
 # beside the unpacked weights (measured on a Colab v5e-1: 16.77 GB asked, 15.75 GB free), so the
 # server stops at 4,096 and refuses longer prompts with a clear error.
 MAX_MODEL_LEN = 4096
-DEQUANT_AT_LOAD = True  # False keeps the weights packed in HBM: less memory, slower decode
+WARM_UP = [{"role": "user", "content": "Say hello."}]  # cell 2.2 sends this: prompt bucket 64, budget 512
 
-print("loading the weights onto the chip; this took 17 s on a Colab v5e-1 on 2026-11-17 ...", flush=True)
+# 1. Tensor shapes from the GGUF header: one 16 MB range request, while the file downloads.
 t0 = time.perf_counter()
-ENGINE = JaxGemmaEngine(MODEL_ID, quant_mode="w4a16", max_model_len=MAX_MODEL_LEN, dequant_at_load=DEQUANT_AT_LOAD)
-ENGINE.load(local_dir=str(MODEL_DIR))
+GGUF_URL = f"https://huggingface.co/{GGUF_REPO}/resolve/{GGUF_REV}/{GGUF_FILE}"
+head = urllib.request.urlopen(urllib.request.Request(GGUF_URL, headers={"Range": "bytes=0-16777215"}), timeout=60)
+DATA_START, GGUF_INDEX = gguf_index(io.BytesIO(head.read()))
+print(f"GGUF header: {len(GGUF_INDEX)} tensors, read in {time.perf_counter() - t0:.1f} s")
+
+# 2. The engine on zero weights of those shapes, and the warm-up request's programs compiled. XLA needs
+#    only shapes and dtypes, so this runs during the download.
+print(f"compiling the first request shape on zero weights, {time.perf_counter() - T_START:.0f} s after the first cell; "
+      "this took 26 s on a Colab v5e-1 on 2026-11-20 ...", flush=True)  # fmt: skip
+t0 = time.perf_counter()
+ENGINE = JaxGemmaEngine(MODEL_ID, quant_mode="w4a16", max_model_len=MAX_MODEL_LEN, dequant_at_load=True)
+engine_load(ENGINE, {name: jnp.zeros(shape, jnp.bfloat16) for name, shape, _, _ in GGUF_INDEX})
 ENGINE.bos_token_id = TOK.bos_token_id
+enc = TOK.apply_chat_template(WARM_UP, tokenize=True, add_generation_prompt=True, enable_thinking=False)
+stream = ENGINE.generate_stream(list(enc["input_ids"] if hasattr(enc, "keys") else enc), 512, 0.0, -1, [], 0)
+next(stream), next(stream)  # one prefill and one decode step: both programs compiled
+stream.close()
+ENGINE.params = None
+STAGES["first shape compiled"] = time.perf_counter() - T_START
+print(f"compiled in {time.perf_counter() - t0:.0f} s, {STAGES['first shape compiled']:.0f} s after the first cell")
+
+# 3. The real weights, once the download is done, in place of the zeros. Same shapes and dtypes, so
+#    the compiled programs are reused.
+t0 = time.perf_counter()
+if DOWNLOAD_THREAD.is_alive():
+    print("waiting for the GGUF download (progress bar in cell 1.1) ...", flush=True)
+DOWNLOAD_THREAD.join()
+if "error" in DL:
+    raise RuntimeError(f"download failed:\n{DL['error']}")
+STAGES["download finished"] = DL["done_at"]
+print(
+    f"GGUF: {TOTAL_BYTES / 1e9:.2f} GB, downloaded in {DL['seconds']:.0f} s, done {STAGES['download finished']:.0f} s "
+    f"after the first cell (this cell waited {time.perf_counter() - t0:.0f} s for it)"
+)
+t0 = time.perf_counter()
+params = convert_safetensors_to_jax_params(
+    gguf_to_chip(DL["path"], DATA_START, GGUF_INDEX),
+    num_layers=ENGINE.config.num_hidden_layers,
+    first_kv_shared_idx=ENGINE.config.first_kv_shared_layer_idx,
+    attention_k_eq_v=ENGINE.config.attention_k_eq_v,
+)
+ENGINE.params = jax.device_put(params, ENGINE.device)
+del params
+ENGINE.weight_bytes = sum(int(x.size) * int(x.dtype.itemsize) for x in jax.tree_util.tree_leaves(ENGINE.params))
 STAGES["weights on chip"] = time.perf_counter() - T_START
 print(
-    f"engine: tpu-jax {TPU_JAX_COMMIT[:7]}, dequant_at_load={DEQUANT_AT_LOAD}, "
-    f"{ENGINE.weight_bytes / 1e9:.2f} GB of weights on the chip, "
-    f"loaded in {time.perf_counter() - t0:.0f} s"
+    f"engine: tpu-jax {TPU_JAX_COMMIT[:7]}, {ENGINE.weight_bytes / 1e9:.2f} GB of bf16 weights on the chip, "
+    f"expanded from the GGUF in {time.perf_counter() - t0:.0f} s"
 )
 print(f"HBM in use: {dev.memory_stats()['bytes_in_use'] / 1e9:.2f} of {HBM_LIMIT / 1e9:.2f} GB")
 
@@ -425,14 +639,14 @@ def run_request(req, emit=None, ids=None):
     }
 
 
-# One short request compiles the shape most chat turns use (prompt bucket 64, answer budget 512).
-print("compiling the first request shape; this took 24 s on a Colab v5e-1 on 2026-11-17 ...", flush=True)
-# The other common chat shapes compile in the background once the server is up (cell 2.5).
+# The first request: the shape most chat turns use (prompt bucket 64, answer budget 512), compiled in
+# cell 2.1 during the download. The other common chat shapes compile in the background once the
+# server is up (cell 2.6).
 t0 = time.perf_counter()
-warm = run_request({"messages": [{"role": "user", "content": "Say hello."}], "max_tokens": 16, "temperature": 0})
+warm = run_request({"messages": WARM_UP, "max_tokens": 16, "temperature": 0})
 assert warm["new_shape"]
-STAGES["first compile done"] = time.perf_counter() - T_START
-print(f"warm-up: {warm['content']!r} in {time.perf_counter() - t0:.0f} s, including the compile")
+STAGES["first answer"] = time.perf_counter() - T_START
+print(f"first answer: {warm['content']!r} in {time.perf_counter() - t0:.1f} s")
 
 # %% [markdown]
 # ### The server
@@ -635,8 +849,9 @@ except ImportError:
     print(f"not on Colab: open http://127.0.0.1:{UI_PORT} in a browser on this machine")
 
 # %% [markdown]
-# **What you should see.** The download finishing a few minutes after the first cell, the weights
-# loading onto the chip, a short compile, then the chat page. The page's side panel shows the model,
+# **What you should see.** The compile finishing while or just after the download does, the weights
+# expanding on the chip in a few seconds, then the chat page. On a Colab v5e-1 on 2026-11-20 the page
+# was up 46 seconds after the first cell started. The page's side panel shows the model,
 # the server version and the request counters, all read from the server above. **You can chat with
 # the model now**. Requests from the page and from any later cell take turns on the chip.
 #
@@ -644,6 +859,42 @@ except ImportError:
 # thinking in the page, run `THINKING_DEFAULT = True` in a new cell; the next message shows its
 # reasoning in a collapsible section. The page also has max tokens, temperature, top-k and a system
 # prompt in its side panel, and shows the first-token time and decode rate of each reply.
+
+# %% [markdown]
+# ### The chip on two simple kernels
+#
+# This cell runs after the server is up, so it never delays the first answer. A chat message sent
+# while it runs waits a few seconds.
+
+# %%
+# Cell 2.5: what the chip does on two simple kernels: a bf16 matmul and a large copy
+import timeit
+
+
+def bench(fn, *args, reps=20):
+    jax.block_until_ready(fn(*args))  # compile and warm up
+    t = timeit.timeit(lambda: jax.block_until_ready(fn(*args)), number=reps)
+    return t / reps
+
+
+N = 8192
+a = jnp.ones((N, N), jnp.bfloat16)
+b = jnp.ones((N, N), jnp.bfloat16)
+t_mm = bench(jax.jit(jnp.matmul), a, b)
+print(f"bf16 matmul {N}x{N}: {t_mm * 1e3:.2f} ms  ->  {2 * N**3 / t_mm / 1e12:.0f} TFLOP/s")
+
+x = jnp.ones((1024, 1024, 512), jnp.bfloat16)  # 1 GiB
+t_cp = bench(jax.jit(lambda v: v + 1), x)
+moved = 2 * x.size * x.dtype.itemsize  # read once, write once
+print(f"1 GiB elementwise:     {t_cp * 1e3:.2f} ms  ->  {moved / t_cp / 1e9:.0f} GB/s of HBM traffic")
+del a, b, x
+
+# %% [markdown]
+# **What these numbers mean.** The matmul figure is the chip's dense bf16 compute; the copy figure is
+# its memory bandwidth. Compare both with Google's published
+# [v5e specification](https://cloud.google.com/tpu/docs/v5e). Decoding one token at a time is
+# bandwidth-bound: every token reads all the weights from HBM, which is why a 4-bit checkpoint
+# decodes faster than a 16-bit one of the same model.
 
 # %% [markdown]
 # ### Warming the other chat shapes in the background
@@ -654,7 +905,7 @@ except ImportError:
 # for at most the one compile in progress.
 
 # %%
-# Cell 2.5: compile the common chat shapes in the background
+# Cell 2.6: compile the common chat shapes in the background
 WARM_SHAPES = [(128, 512), (256, 512), (64, 2048), (128, 2048), (512, 512), (256, 2048)]
 WARM_LOG = []
 FILLER_ID = TOK.encode("hello", add_special_tokens=False)[0]
