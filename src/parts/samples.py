@@ -238,14 +238,15 @@ except json.JSONDecodeError as e:
 # Reading a prompt (prefill) processes all of its tokens at once, so first-token time grows with
 # prompt length far more slowly than token by token would. Each prompt length here lands in a new
 # bucket, so each first call compiles. The cell asks twice per length and reports the second, which
-# is the time a user sees once the shape is warm. The longest prompt is close to this server's
-# 4,096-token limit; the cell after it shows what a longer one gets.
+# is the time a user sees once the shape is warm. The longest prompt is about 16,000 tokens, half of
+# this server's 32,768-token limit; its first call compiles for about 80 seconds. The cell after it
+# shows what a prompt over the limit gets.
 
 # %%
 # Cell 3.9: first-token time against prompt length
 filler = "The quick brown fox jumps over the lazy dog near the riverbank at dawn. "
 print(f"{'prompt tokens':>13s} {'first call s':>12s} {'warm first token s':>18s} {'decode tok/s':>12s}")
-for reps in (5, 40, 160, 240):
+for reps in (5, 40, 160, 240, 1000):
     msg = filler * reps + "\n\nHow many times does the word 'fox' appear above? Answer with a number."
     cold = ask(msg, temperature=0, max_tokens=16, show=False)
     warm = ask(msg, temperature=0, max_tokens=16, show=False, label=f"prompt {cold['prompt_tokens']} tokens")
@@ -259,7 +260,7 @@ for reps in (5, 40, 160, 240):
 import openai
 
 try:
-    ask(filler * 400 + "\n\nSummarize.", max_tokens=16, show=False)
+    ask(filler * 2200 + "\n\nSummarize.", max_tokens=16, show=False)
 except openai.BadRequestError as e:
     print(f"HTTP {e.status_code}: {e.body.get('message') if isinstance(e.body, dict) else e.body}")
 print("server still answering:", ask("Say OK.", temperature=0, max_tokens=4, show=False)["content"])

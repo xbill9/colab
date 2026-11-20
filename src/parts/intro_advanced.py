@@ -74,4 +74,6 @@
 # * **Time.** The chat page was up 46 to 53 seconds after the first cell started, in three runs on
 #   a Colab v5e-1 on 2026-11-20. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
 #   llama.cpp section is a third of that.
+# * **Context.** Prompt plus answer can be up to 32,768 tokens; section 3.7 times prompts up to
+#   16,000 tokens.
 # * **Safety.** Nothing is uploaded. The servers listen on `127.0.0.1` inside the Colab VM.

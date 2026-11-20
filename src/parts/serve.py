@@ -424,11 +424,58 @@ def engine_load(engine, tensors):
 TOK = ChatTokenizer(MODEL_DIR)
 GEN_CFG = json.loads((MODEL_DIR / "generation_config.json").read_text())
 EOS_IDS = GEN_CFG["eos_token_id"]
-# Prompt plus answer. At 8,192 the prefill of a long prompt needs more HBM than this chip has left
-# beside the unpacked weights (measured on a Colab v5e-1: 16.77 GB asked, 15.75 GB free), so the
-# server stops at 4,096 and refuses longer prompts with a clear error.
-MAX_MODEL_LEN = 4096
-WARM_UP = [{"role": "user", "content": "Say hello."}]  # cell 2.2 sends this: prompt bucket 64, budget 512
+# Prompt plus answer. Reading a long prompt in one pass needs more HBM than this chip has beside the
+# bf16 weights (at 8,192 tokens, 16.77 GB asked and 15.75 GB free, Colab v5e-1). Read in 512-token
+# chunks it fits: on 2026-11-20 a 16,028-token prompt got its first token in 1.9 s, and the model
+# found a fact placed at the start of a 32,200-token prompt. Longer prompts are refused with a clear
+# error.
+from ports.gemma4.jax_e_model import TPUv6eHardwareProfile  # noqa: E402
+
+MAX_MODEL_LEN = 32768
+PREFILL_CHUNK = 512
+# Prompt lengths are padded to a fixed set of sizes, and each size compiles once. Above 8,192 the
+# engine would pad to the next multiple of 128, which makes almost every long prompt a new compile
+# (80 s each, measured); these four sizes cap that at four. Every size is a multiple of the chunk.
+TPUv6eHardwareProfile.static_sequence_buckets = (64, 128, 256, 512, 1024, 2048, 4096, 8192, 12288, 16384, 24576, 32768)
+CHUNKED_ABOVE = 2048  # prompts up to this size are read in one pass, which is faster when it fits
+
+import jax_engine  # noqa: E402
+from ports.gemma4.jax_e_model import init_kv_cache, make_chunked_prefill_step  # noqa: E402
+
+CHUNK_STEPS = {}  # one compiled chunk step per (model, chunk size, weight mode), built once
+
+
+def chunked_prefill_with_kv_cache(model, prompt_ids, prompt_valid, params, max_new_tokens, chunk_size=256,
+                                  quant_mode="w4a16", cache_dtype=jnp.bfloat16):  # fmt: skip
+    """The engine's chunked prefill, with its chunk step compiled once instead of on every request."""
+    B, S = prompt_ids.shape
+    total_len = S + max_new_tokens
+    caches = init_kv_cache(model.config, batch_size=B, max_seq_len=total_len, dtype=cache_dtype, window_kv=False)
+    valid = jnp.zeros((B, total_len), dtype=jnp.bool_)
+    key = (id(model), chunk_size, quant_mode)
+    if key not in CHUNK_STEPS:
+        CHUNK_STEPS[key] = jax.jit(make_chunked_prefill_step(model, chunk_size, quant_mode=quant_mode))
+    step = CHUNK_STEPS[key]
+    for start in range(0, S, chunk_size):
+        caches, valid, logits = step(params, caches, valid, prompt_ids[:, start : start + chunk_size], jnp.int32(start))
+    valid = jnp.concatenate([prompt_valid, jnp.zeros((B, max_new_tokens), dtype=jnp.bool_)], axis=1)
+    prompt_lens = prompt_valid.sum(axis=1).astype(jnp.int32)
+    within = jnp.clip(prompt_lens - 1 - (S - chunk_size), 0, chunk_size - 1)
+    last_logits = jnp.take_along_axis(logits, within[:, None, None], axis=1)[:, 0, :]
+    return last_logits, caches, valid
+
+
+jax_engine.chunked_prefill_with_kv_cache = chunked_prefill_with_kv_cache
+
+
+def engine_stream(ids, budget, temperature, top_k, eos_ids, seed):
+    """ENGINE.generate_stream, reading a prompt over CHUNKED_ABOVE tokens in chunks."""
+    long_prompt = TPUv6eHardwareProfile.get_nearest_bucket(len(ids)) > CHUNKED_ABOVE
+    ENGINE.prefill_chunk_size = PREFILL_CHUNK if long_prompt else None
+    return ENGINE.generate_stream(ids, budget, temperature, top_k, eos_ids, seed)
+
+
+WARM_UP = [{"role": "user", "content": "Say hello."}]  # cell 2.2 sends this: prompt bucket 64, budget 2048
 
 # 1. Tensor shapes from the GGUF header: one 16 MB range request, while the file downloads.
 t0 = time.perf_counter()
@@ -442,11 +489,16 @@ print(f"GGUF header: {len(GGUF_INDEX)} tensors, read in {time.perf_counter() - t
 print(f"compiling the first request shape on zero weights, {time.perf_counter() - T_START:.0f} s after the first cell; "
       "this took 26 s on a Colab v5e-1 on 2026-11-20 ...", flush=True)  # fmt: skip
 t0 = time.perf_counter()
-ENGINE = JaxGemmaEngine(MODEL_ID, quant_mode="w4a16", max_model_len=MAX_MODEL_LEN, dequant_at_load=True)
+# Chunked reading needs the full key/value cache on every layer (window_kv=False); decode at a short
+# prompt ran at 127.5 tokens/s with it against 132.0 without, on 2026-11-20.
+ENGINE = JaxGemmaEngine(
+    MODEL_ID, quant_mode="w4a16", max_model_len=MAX_MODEL_LEN, dequant_at_load=True,
+    prefill_chunk_size=PREFILL_CHUNK, window_kv=False,
+)  # fmt: skip
 engine_load(ENGINE, {name: jnp.zeros(shape, jnp.bfloat16) for name, shape, _, _ in GGUF_INDEX})
 ENGINE.bos_token_id = TOK.bos_token_id
 enc = TOK.apply_chat_template(WARM_UP, tokenize=True, add_generation_prompt=True, enable_thinking=False)
-stream = ENGINE.generate_stream(list(enc["input_ids"] if hasattr(enc, "keys") else enc), 512, 0.0, -1, [], 0)
+stream = engine_stream(list(enc["input_ids"] if hasattr(enc, "keys") else enc), 2048, 0.0, -1, [], 0)
 next(stream), next(stream)  # one prefill and one decode step: both programs compiled
 stream.close()
 ENGINE.params = None
@@ -496,7 +548,8 @@ print(f"HBM in use: {dev.memory_stats()['bytes_in_use'] / 1e9:.2f} of {HBM_LIMIT
 #   tokens, `<|channel>` and `<channel|>`, with the word `thought` as a label. The server returns that
 #   text as `reasoning_content` and the rest as `content`, the field names vLLM and llama.cpp use.
 # * **Shapes and compiles.** The engine compiles one program per (prompt bucket, answer budget) pair.
-#   Prompts are padded to 64, 128, 256, ... tokens. Answer budgets are rounded up to 512, 2048 or
+#   Prompts are padded to 64, 128, 256, ... 8,192 tokens, then to 12,288, 16,384, 24,576 or 32,768,
+#   and prompts over 2,048 tokens are read in 512-token chunks. Answer budgets are rounded up to 512, 2048 or
 #   4096 tokens and the stream is cut at the requested `max_tokens`, so different `max_tokens` values
 #   reuse one program instead of compiling a new one each. Every response carries `x_new_shape`,
 #   true when serving it compiled a new program, so a slow first token can be told apart from a slow
@@ -554,8 +607,6 @@ class ReasoningSplitter:
         return (self.kind, delta) if delta else None
 
 
-from ports.gemma4.jax_e_model import TPUv6eHardwareProfile  # noqa: E402
-
 SEEN_SHAPES = set()  # (prompt bucket, answer budget) pairs already compiled
 
 
@@ -602,7 +653,7 @@ def run_request(req, emit=None, ids=None):
         if emit and text:
             emit(kind, text)
 
-    stream = ENGINE.generate_stream(ids, budget, temperature, top_k, EOS_IDS, seed)
+    stream = engine_stream(ids, budget, temperature, top_k, EOS_IDS, seed)
     try:
         for item in stream:
             if not isinstance(item, int):  # the GenerationStats at the end: the model stopped itself
@@ -639,11 +690,12 @@ def run_request(req, emit=None, ids=None):
     }
 
 
-# The first request: the shape most chat turns use (prompt bucket 64, answer budget 512), compiled in
+# The first request: the shape most chat turns use (prompt bucket 64, answer budget 2048, the chat
+# page's default), compiled in
 # cell 2.1 during the download. The other common chat shapes compile in the background once the
 # server is up (cell 2.6).
 t0 = time.perf_counter()
-warm = run_request({"messages": WARM_UP, "max_tokens": 16, "temperature": 0})
+warm = run_request({"messages": WARM_UP, "max_tokens": 2048, "temperature": 0})
 assert warm["new_shape"]
 STAGES["first answer"] = time.perf_counter() - T_START
 print(f"first answer: {warm['content']!r} in {time.perf_counter() - t0:.1f} s")
@@ -906,7 +958,7 @@ del a, b, x
 
 # %%
 # Cell 2.6: compile the common chat shapes in the background
-WARM_SHAPES = [(128, 512), (256, 512), (64, 2048), (128, 2048), (512, 512), (256, 2048)]
+WARM_SHAPES = [(128, 2048), (256, 2048), (512, 2048), (64, 512), (128, 512), (256, 512)]
 WARM_LOG = []
 FILLER_ID = TOK.encode("hello", add_special_tokens=False)[0]
 
@@ -918,7 +970,7 @@ def warm_shapes():
             continue
         with LOCK:
             t0 = time.perf_counter()
-            stream = ENGINE.generate_stream(ids, budget, 0.0, -1, [], 0)
+            stream = engine_stream(ids, budget, 0.0, -1, [], 0)
             for _ in range(2):  # the first token compiles the prefill, the second the decode step
                 next(stream)
             stream.close()

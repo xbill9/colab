@@ -44,5 +44,7 @@
 #
 # * **Runtime.** Runtime, then Change runtime type, then **v5e-1 TPU**.
 # * **No token.** Every download is public. Nothing asks for a Hugging Face token.
+# * **Context.** Prompt plus answer can be up to 32,768 tokens. The chat page's Max tokens starts at
+#   2,048, enough for an answer with thinking on.
 # * **Safety.** Nothing is uploaded. The server and the chat page listen on `127.0.0.1` inside the
 #   Colab VM; the page reaches your browser through Colab's own port proxy.
