@@ -9,11 +9,9 @@
 # %% [markdown]
 # ## 3. Try it
 #
-# Type into the chat page under cell 2.4. Its side panel sets max tokens, temperature, top-k and a
-# system prompt, and shows each reply's first-token time and decode rate.
-#
-# * **Thinking.** Run `THINKING_DEFAULT = True` in a new cell, and the next reply shows its reasoning
-#   in a collapsible section above the answer. `False` turns it off again.
+# Type into the chat page under cell 2.4, or click one of its example prompts. Tick **Thinking** to
+# see the model reason before it answers. **New** starts a fresh conversation, **Stop** cuts a reply
+# short. The side panel shows each reply's first-token time and decode rate.
 # * **From code.** The endpoint is `http://127.0.0.1:8000/v1` inside this runtime, and any OpenAI
 #   client works against it:
 #

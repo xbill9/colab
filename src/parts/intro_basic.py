@@ -13,7 +13,8 @@
 #
 # This notebook loads Gemma 4 E2B onto one Colab TPU v5e chip, serves it behind an
 # OpenAI-compatible endpoint, and opens a chat page right here in the notebook. On a Colab v5e-1 on
-# 2026-11-20 the page was up 46 to 53 seconds after the first cell started, in three runs.
+# 2026-11-21 the page was up 67 to 69 seconds after the first cell started, in three runs, and every
+# chat message after that ran without a compile.
 #
 # ### The model
 #
@@ -44,7 +45,7 @@
 #
 # * **Runtime.** Runtime, then Change runtime type, then **v5e-1 TPU**.
 # * **No token.** Every download is public. Nothing asks for a Hugging Face token.
-# * **Context.** Prompt plus answer can be up to 32,768 tokens. The chat page's Max tokens starts at
-#   2,048, enough for an answer with thinking on.
+# * **Context.** The chat page keeps the last 2,048 tokens of a conversation, and replies stop at
+#   2,048 tokens. From code, a prompt can be up to 30,720 tokens.
 # * **Safety.** Nothing is uploaded. The server and the chat page listen on `127.0.0.1` inside the
 #   Colab VM; the page reaches your browser through Colab's own port proxy.

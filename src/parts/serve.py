@@ -207,8 +207,10 @@ STAGES["chip info"] = time.perf_counter() - T_START
 # 1. **One compile, during the download.** XLA compiles a program for each request shape, and it
 #    needs only the shapes of the weights, not their values. The cell reads every tensor's shape from
 #    the GGUF's header (one 16 MB request), loads the engine with zero weights of those shapes and runs
-#    one short request, which compiles the shape most chat turns use. Other shapes (long prompts, long
-#    answers) compile the first time they are used, or in the background in cell 2.6.
+#    one short request. Every prompt up to 2,048 tokens is read in 64-token chunks into a key/value
+#    cache of fixed size, so these two programs (one chunk, one decode step) serve every chat turn,
+#    whatever its length. Only a prompt over 2,048
+#    tokens, sent from code, compiles a new size the first time it is used.
 # 2. **The weights.** When the download is done, the GGUF's 4-bit blocks go to the chip and are
 #    expanded there to bf16, in place of the zeros. The shapes match, so nothing compiles again. bf16
 #    weights decode faster than 4-bit ones unpacked at every step (131 against 103 tokens per second,
@@ -433,11 +435,17 @@ from ports.gemma4.jax_e_model import TPUv6eHardwareProfile  # noqa: E402
 
 MAX_MODEL_LEN = 32768
 PREFILL_CHUNK = 512
-# Prompt lengths are padded to a fixed set of sizes, and each size compiles once. Above 8,192 the
-# engine would pad to the next multiple of 128, which makes almost every long prompt a new compile
-# (80 s each, measured); these four sizes cap that at four. Every size is a multiple of the chunk.
+# Every request runs with the same answer budget, so a chat's compiled programs depend only on its
+# prompt length. Answers stop at 2,048 tokens; a larger max_tokens is treated as 2,048.
+ANSWER_BUDGET = 2048
+# Prompt lengths are padded to a fixed set of sizes. Above 8,192 the engine alone would pad to the next
+# multiple of 128, a new 80 s compile for almost every long prompt; these sizes cap that. Every size is
+# a multiple of both chunk sizes below.
 TPUv6eHardwareProfile.static_sequence_buckets = (64, 128, 256, 512, 1024, 2048, 4096, 8192, 12288, 16384, 24576, 32768)
-CHUNKED_ABOVE = 2048  # prompts up to this size are read in one pass, which is faster when it fits
+# Chat: every prompt up to CHAT_PROMPT_MAX tokens is read in CHAT_CHUNK-token chunks into a key/value
+# cache of CHAT_TOTAL slots. The chunk program and the decode program then have one shape each, for
+# any prompt length, so all chat traffic runs the two programs compiled during the download.
+CHAT_PROMPT_MAX, CHAT_CHUNK, CHAT_TOTAL = 2048, 64, 4096
 
 import jax_engine  # noqa: E402
 from ports.gemma4.jax_e_model import init_kv_cache, make_chunked_prefill_step  # noqa: E402
@@ -447,8 +455,14 @@ CHUNK_STEPS = {}  # one compiled chunk step per (model, chunk size, weight mode)
 
 def chunked_prefill_with_kv_cache(model, prompt_ids, prompt_valid, params, max_new_tokens, chunk_size=256,
                                   quant_mode="w4a16", cache_dtype=jnp.bfloat16):  # fmt: skip
-    """The engine's chunked prefill, with its chunk step compiled once instead of on every request."""
-    B, S = prompt_ids.shape
+    """The engine's chunked prefill, changed in three ways. It reads only the chunks that hold real
+    tokens and takes the logits of the last real token from the chunk it is in (the engine's version
+    reads every chunk and takes them from the last one, which is padding whenever the padding is longer
+    than a chunk). Its chunk step is compiled once, not on every request. And every array whose value
+    changes between requests is built on the host, so no request compiles a small program of its own."""
+    ids = np.asarray(prompt_ids)
+    B, S = ids.shape
+    n = int(np.asarray(prompt_valid).sum(axis=1).max())  # real tokens; the rest of the row is padding
     total_len = S + max_new_tokens
     caches = init_kv_cache(model.config, batch_size=B, max_seq_len=total_len, dtype=cache_dtype, window_kv=False)
     valid = jnp.zeros((B, total_len), dtype=jnp.bool_)
@@ -456,26 +470,40 @@ def chunked_prefill_with_kv_cache(model, prompt_ids, prompt_valid, params, max_n
     if key not in CHUNK_STEPS:
         CHUNK_STEPS[key] = jax.jit(make_chunked_prefill_step(model, chunk_size, quant_mode=quant_mode))
     step = CHUNK_STEPS[key]
-    for start in range(0, S, chunk_size):
-        caches, valid, logits = step(params, caches, valid, prompt_ids[:, start : start + chunk_size], jnp.int32(start))
-    valid = jnp.concatenate([prompt_valid, jnp.zeros((B, max_new_tokens), dtype=jnp.bool_)], axis=1)
-    prompt_lens = prompt_valid.sum(axis=1).astype(jnp.int32)
-    within = jnp.clip(prompt_lens - 1 - (S - chunk_size), 0, chunk_size - 1)
-    last_logits = jnp.take_along_axis(logits, within[:, None, None], axis=1)[:, 0, :]
-    return last_logits, caches, valid
+    n_chunks = -(-n // chunk_size)
+    for c in range(n_chunks):
+        start = c * chunk_size
+        caches, valid, logits = step(params, caches, valid, ids[:, start : start + chunk_size], np.int32(start))
+    valid_host = np.zeros((B, total_len), dtype=np.bool_)
+    valid_host[:, :n] = True
+    within = np.full((B, 1, 1), n - 1 - (n_chunks - 1) * chunk_size, dtype=np.int32)
+    last_logits = jnp.take_along_axis(logits, jnp.asarray(within), axis=1)[:, 0, :]
+    return last_logits, caches, jnp.asarray(valid_host)
 
 
 jax_engine.chunked_prefill_with_kv_cache = chunked_prefill_with_kv_cache
 
 
 def engine_stream(ids, budget, temperature, top_k, eos_ids, seed):
-    """ENGINE.generate_stream, reading a prompt over CHUNKED_ABOVE tokens in chunks."""
-    long_prompt = TPUv6eHardwareProfile.get_nearest_bucket(len(ids)) > CHUNKED_ABOVE
-    ENGINE.prefill_chunk_size = PREFILL_CHUNK if long_prompt else None
+    """ENGINE.generate_stream with chat prompts in the fixed chat shape (see CHAT_TOTAL) and longer ones
+    in PREFILL_CHUNK-token chunks. The caller stops reading at its own max_tokens."""
+    bucket = TPUv6eHardwareProfile.get_nearest_bucket(len(ids))
+    if bucket <= CHAT_PROMPT_MAX:
+        ENGINE.prefill_chunk_size, budget = CHAT_CHUNK, CHAT_TOTAL - bucket
+    else:
+        ENGINE.prefill_chunk_size = PREFILL_CHUNK
     return ENGINE.generate_stream(ids, budget, temperature, top_k, eos_ids, seed)
 
 
-WARM_UP = [{"role": "user", "content": "Say hello."}]  # cell 2.2 sends this: prompt bucket 64, budget 2048
+def write_at_position(decode_step):
+    """The engine writes each new token's keys and values at cache slot (padded prompt length + step),
+    and its sliding-window layers mask by slot, so a prompt padded by more than their 512-token window
+    loses sight of itself. Writing at the token's real position (prompt length + step) puts it right
+    after the prompt; the padding slots it overwrites were never valid."""
+    return lambda params, caches, valid, tok, pos, slot: decode_step(params, caches, valid, tok, pos, pos[0])
+
+
+WARM_UP = [{"role": "user", "content": "Say hello."}]  # cell 2.2 sends this through the chat programs
 
 # 1. Tensor shapes from the GGUF header: one 16 MB range request, while the file downloads.
 t0 = time.perf_counter()
@@ -487,7 +515,7 @@ print(f"GGUF header: {len(GGUF_INDEX)} tensors, read in {time.perf_counter() - t
 # 2. The engine on zero weights of those shapes, and the warm-up request's programs compiled. XLA needs
 #    only shapes and dtypes, so this runs during the download.
 print(f"compiling the first request shape on zero weights, {time.perf_counter() - T_START:.0f} s after the first cell; "
-      "this took 26 s on a Colab v5e-1 on 2026-11-20 ...", flush=True)  # fmt: skip
+      "this took 47 to 49 s on a Colab v5e-1 on 2026-11-21 ...", flush=True)  # fmt: skip
 t0 = time.perf_counter()
 # Chunked reading needs the full key/value cache on every layer (window_kv=False); decode at a short
 # prompt ran at 127.5 tokens/s with it against 132.0 without, on 2026-11-20.
@@ -496,10 +524,14 @@ ENGINE = JaxGemmaEngine(
     prefill_chunk_size=PREFILL_CHUNK, window_kv=False,
 )  # fmt: skip
 engine_load(ENGINE, {name: jnp.zeros(shape, jnp.bfloat16) for name, shape, _, _ in GGUF_INDEX})
+ENGINE._decode_step = write_at_position(ENGINE._decode_step)
 ENGINE.bos_token_id = TOK.bos_token_id
-enc = TOK.apply_chat_template(WARM_UP, tokenize=True, add_generation_prompt=True, enable_thinking=False)
-stream = engine_stream(list(enc["input_ids"] if hasattr(enc, "keys") else enc), 2048, 0.0, -1, [], 0)
-next(stream), next(stream)  # one prefill and one decode step: both programs compiled
+# A 100-token prompt is two chunks and three tokens are two decode steps. A chunk that follows a chunk,
+# and a decode step that follows a decode step, each compile once more on first use (13.7 s and 7.5 s,
+# measured 2026-11-21), so the warm-up runs both here instead of on a user's first messages.
+stream = engine_stream([TOK.bos_token_id] + TOK.encode("hello " * 99)[:99], ANSWER_BUDGET, 0.0, -1, [], 0)
+for _ in range(3):
+    next(stream)
 stream.close()
 ENGINE.params = None
 STAGES["first shape compiled"] = time.perf_counter() - T_START
@@ -547,13 +579,13 @@ print(f"HBM in use: {dev.memory_stats()['bytes_in_use'] / 1e9:.2f} of {HBM_LIMIT
 # * **Splitting reasoning from the answer.** The model writes its reasoning between two special
 #   tokens, `<|channel>` and `<channel|>`, with the word `thought` as a label. The server returns that
 #   text as `reasoning_content` and the rest as `content`, the field names vLLM and llama.cpp use.
-# * **Shapes and compiles.** The engine compiles one program per (prompt bucket, answer budget) pair.
-#   Prompts are padded to 64, 128, 256, ... 8,192 tokens, then to 12,288, 16,384, 24,576 or 32,768,
-#   and prompts over 2,048 tokens are read in 512-token chunks. Answer budgets are rounded up to 512, 2048 or
-#   4096 tokens and the stream is cut at the requested `max_tokens`, so different `max_tokens` values
-#   reuse one program instead of compiling a new one each. Every response carries `x_new_shape`,
-#   true when serving it compiled a new program, so a slow first token can be told apart from a slow
-#   model.
+# * **Shapes and compiles.** XLA compiles one program per shape. Every prompt up to 2,048 tokens is
+#   read in 64-token chunks into a 4,096-slot key/value cache, so every chat request shares one chunk
+#   program and one decode program, both compiled at start-up. A longer prompt is padded to 4,096,
+#   8,192, 12,288, 16,384, 24,576 or 32,768 tokens and read in 512-token chunks; each of those sizes
+#   compiles the first time it is used. Answers stop at 2,048 tokens. Every response carries
+#   `x_new_shape`, true when serving it compiled a new program, so a slow first token can be told
+#   apart from a slow model.
 # * **Stop sequences.** Text that could be the start of a stop sequence is held back until the next
 #   tokens show whether it is, so a stop string never leaks out half-written.
 # * **One request at a time.** This engine decodes a single sequence, so the server runs requests in
@@ -571,14 +603,13 @@ import threading
 
 CH_OPEN = TOK.convert_tokens_to_ids("<|channel>")
 CH_CLOSE = TOK.convert_tokens_to_ids("<channel|>")
-ANSWER_BUDGETS = (512, 2048, 4096)
 # Thinking for requests that do not say. The chat page sends no `enable_thinking`, so this switch is
 # how the page gets thinking: set it to True and the page shows the reasoning in a collapsible
 # section above each answer. Every sample below sets thinking explicitly, so this does not affect them.
 THINKING_DEFAULT = False
 SUPPORTED = {
     "model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_k", "seed", "stop",
-    "stream", "stream_options", "chat_template_kwargs", "n",
+    "stream", "stream_options", "chat_template_kwargs", "n", "x_fit_prompt",
 }  # fmt: skip
 
 
@@ -611,18 +642,36 @@ SEEN_SHAPES = set()  # (prompt bucket, answer budget) pairs already compiled
 
 
 def prompt_ids(req):
-    """The request's messages through the chat template; ValueError if they do not fit."""
+    """The request's messages through the chat template; ValueError if they do not fit.
+
+    With `x_fit_prompt` (the chat page sends it) the oldest turns are left out until the conversation
+    fits in CHAT_PROMPT_MAX tokens, so the page never needs a larger, uncompiled size. How many were
+    left out is stored in req["_dropped"] and returned as `x_dropped_messages`.
+    """
     thinking = bool((req.get("chat_template_kwargs") or {}).get("enable_thinking", THINKING_DEFAULT))
-    enc = TOK.apply_chat_template(req["messages"], tokenize=True, add_generation_prompt=True, enable_thinking=thinking)
-    ids = list(enc["input_ids"] if hasattr(enc, "keys") else enc)
-    if len(ids) >= MAX_MODEL_LEN:
-        raise ValueError(f"prompt is {len(ids)} tokens; this server's limit is {MAX_MODEL_LEN - 1}")
+    msgs, fit = list(req["messages"]), bool(req.get("x_fit_prompt"))
+    first = 1 if msgs and msgs[0].get("role") == "system" else 0
+    while True:
+        enc = TOK.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True, enable_thinking=thinking)
+        ids = list(enc["input_ids"] if hasattr(enc, "keys") else enc)
+        if not fit or len(ids) <= CHAT_PROMPT_MAX or len(msgs) - first <= 1:
+            break
+        del msgs[first]  # the oldest turn, then up to the next user message
+        while len(msgs) - first > 1 and msgs[first].get("role") != "user":
+            del msgs[first]
+    req["_dropped"] = len(req["messages"]) - len(msgs)
+    if fit and len(ids) > CHAT_PROMPT_MAX:
+        raise ValueError(f"that message is {len(ids)} tokens; the chat page takes up to {CHAT_PROMPT_MAX}")
+    if len(ids) > MAX_MODEL_LEN - ANSWER_BUDGET:
+        raise ValueError(f"prompt is {len(ids)} tokens; this server's limit is {MAX_MODEL_LEN - ANSWER_BUDGET}")
     return ids
 
 
 def shape_of(n_prompt, budget):
-    """The compiled program a request uses: its padded prompt length and its answer budget."""
-    return TPUv6eHardwareProfile.get_nearest_bucket(n_prompt), min(budget, MAX_MODEL_LEN - n_prompt)
+    """The compiled programs a request uses: every chat-sized prompt shares one shape; a longer prompt's
+    shape is its padded length and the answer budget."""
+    bucket = TPUv6eHardwareProfile.get_nearest_bucket(n_prompt)
+    return ("chat", CHAT_TOTAL) if bucket <= CHAT_PROMPT_MAX else (bucket, budget)
 
 
 def stop_holdback(text, stops):
@@ -633,8 +682,8 @@ def stop_holdback(text, stops):
 def run_request(req, emit=None, ids=None):
     """Generate for one OpenAI chat request. `emit(kind, text)` receives deltas as they are produced."""
     ids = ids or prompt_ids(req)
-    max_tokens = int(req.get("max_completion_tokens") or req.get("max_tokens") or 1024)
-    budget = next((b for b in ANSWER_BUDGETS if b >= max_tokens), max_tokens)
+    max_tokens = min(int(req.get("max_completion_tokens") or req.get("max_tokens") or ANSWER_BUDGET), ANSWER_BUDGET)
+    budget = ANSWER_BUDGET
     shape = shape_of(len(ids), budget)
     new_shape = shape not in SEEN_SHAPES
     temperature = req.get("temperature")
@@ -690,12 +739,10 @@ def run_request(req, emit=None, ids=None):
     }
 
 
-# The first request: the shape most chat turns use (prompt bucket 64, answer budget 2048, the chat
-# page's default), compiled in
-# cell 2.1 during the download. The other common chat shapes compile in the background once the
-# server is up (cell 2.6).
+# The first request runs the two chat programs compiled in cell 2.1 during the download. Every
+# chat-page message runs these same two programs.
 t0 = time.perf_counter()
-warm = run_request({"messages": WARM_UP, "max_tokens": 2048, "temperature": 0})
+warm = run_request({"messages": WARM_UP, "max_tokens": 16, "temperature": 0})
 assert warm["new_shape"]
 STAGES["first answer"] = time.perf_counter() - T_START
 print(f"first answer: {warm['content']!r} in {time.perf_counter() - t0:.1f} s")
@@ -823,7 +870,12 @@ class OpenAIHandler(http.server.BaseHTTPRequestHandler):
         }
         if stream:
             try:
-                chunk({}, finish=result["finish_reason"], x_new_shape=result["new_shape"])
+                chunk(
+                    {},
+                    finish=result["finish_reason"],
+                    x_new_shape=result["new_shape"],
+                    x_dropped_messages=req["_dropped"],
+                )
                 if (req.get("stream_options") or {}).get("include_usage"):
                     chunk(None, usage=usage)
                 self.wfile.write(b"data: [DONE]\n\n")
@@ -836,7 +888,7 @@ class OpenAIHandler(http.server.BaseHTTPRequestHandler):
         body = {
             "id": rid, "object": "chat.completion", "created": created, "model": MODEL_ID,
             "choices": [{"index": 0, "message": message, "finish_reason": result["finish_reason"]}],
-            "usage": usage, "x_new_shape": result["new_shape"],
+            "usage": usage, "x_new_shape": result["new_shape"], "x_dropped_messages": req["_dropped"],
         }  # fmt: skip
         if ignored:
             body["warnings"] = [f"ignored unsupported field: {k}" for k in ignored]
@@ -903,14 +955,15 @@ except ImportError:
 # %% [markdown]
 # **What you should see.** The compile finishing while or just after the download does, the weights
 # expanding on the chip in a few seconds, then the chat page. On a Colab v5e-1 on 2026-11-20 the page
-# was up 46 to 53 seconds after the first cell started, in three runs. The page's side panel shows the model,
+# was up 67 to 69 seconds after the first cell started, in three runs on 2026-11-21. The page's side panel shows the model,
 # the server version and the request counters, all read from the server above. **You can chat with
 # the model now**. Requests from the page and from any later cell take turns on the chip.
 #
-# The page sends no `enable_thinking`, so the server's `THINKING_DEFAULT` decides. To demo
-# thinking in the page, run `THINKING_DEFAULT = True` in a new cell; the next message shows its
-# reasoning in a collapsible section. The page also has max tokens, temperature, top-k and a system
-# prompt in its side panel, and shows the first-token time and decode rate of each reply.
+# The page has one switch, **Thinking**: ticked, the model reasons first and the reasoning shows in a
+# collapsible section above the answer. Replies stop at 2,048 tokens. The page sends at most the last
+# 2,048 tokens of the conversation; when older turns are left out it says so. Every message runs the
+# program compiled at start-up, so nothing typed into the page starts a compile. The side panel shows
+# each reply's first-token time and decode rate.
 
 # %% [markdown]
 # ### The chip on two simple kernels
@@ -947,38 +1000,3 @@ del a, b, x
 # [v5e specification](https://cloud.google.com/tpu/docs/v5e). Decoding one token at a time is
 # bandwidth-bound: every token reads all the weights from HBM, which is why a 4-bit checkpoint
 # decodes faster than a 16-bit one of the same model.
-
-# %% [markdown]
-# ### Warming the other chat shapes in the background
-#
-# A chat's first few turns move through the 128, 256 and 512-token prompt buckets, and a thinking
-# answer needs the 2048-token budget. Each would compile the first time a user hit it. The next cell
-# compiles them in a background thread instead, one at a time. A chat message sent meanwhile waits
-# for at most the one compile in progress.
-
-# %%
-# Cell 2.6: compile the common chat shapes in the background
-WARM_SHAPES = [(128, 2048), (256, 2048), (512, 2048), (64, 512), (128, 512), (256, 512)]
-WARM_LOG = []
-FILLER_ID = TOK.encode("hello", add_special_tokens=False)[0]
-
-
-def warm_shapes():
-    for bucket, budget in WARM_SHAPES:
-        ids = [TOK.bos_token_id] + [FILLER_ID] * (bucket - 1)  # exactly fills the bucket
-        if shape_of(len(ids), budget) in SEEN_SHAPES:
-            continue
-        with LOCK:
-            t0 = time.perf_counter()
-            stream = engine_stream(ids, budget, 0.0, -1, [], 0)
-            for _ in range(2):  # the first token compiles the prefill, the second the decode step
-                next(stream)
-            stream.close()
-            SEEN_SHAPES.add(shape_of(len(ids), budget))
-        WARM_LOG.append((bucket, budget, time.perf_counter() - t0))
-
-
-WARM_THREAD = threading.Thread(target=warm_shapes, daemon=True)
-WARM_THREAD.start()
-print(f"compiling {len(WARM_SHAPES)} chat shapes in the background, about 3 minutes (178 s on 2026-11-17).")
-print("The chat page stays usable meanwhile: a message waits for at most the one compile in progress.")

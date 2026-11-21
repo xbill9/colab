@@ -49,8 +49,8 @@
 # The goal is a model you can talk to soon after **Run all**. The engine is
 # [`tpu-jax`](https://github.com/xbill9/tpu-jax), a Gemma 4 E2B decoder in pure JAX. It compiles only
 # the shapes a request uses, and XLA needs only the weights' shapes to compile, so this notebook
-# compiles the first request's shape during the download. On a Colab v5e-1 on 2026-11-20 that compile
-# took 26 seconds and the GGUF's weights reached the chip 7 seconds after it. vLLM on the same chip took 17 minutes from TPU grant
+# compiles the two programs every chat message uses during the download. On a Colab v5e-1 on
+# 2026-11-21 that compile took 47 to 49 seconds and the GGUF's weights reached the chip 8 seconds after it. vLLM on the same chip took 17 minutes from TPU grant
 # to its first answer when measured on 2026-11-03, and 16 on a container restart (most of it compiling), which is why vLLM appears
 # here as an optional remote endpoint rather than as the local server.
 #
@@ -71,9 +71,9 @@
 #
 # * **Runtime.** Runtime, then Change runtime type, then **v5e-1 TPU**.
 # * **No token.** Every download is public. Nothing asks for a Hugging Face token.
-# * **Time.** The chat page was up 46 to 53 seconds after the first cell started, in three runs on
-#   a Colab v5e-1 on 2026-11-20. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
+# * **Time.** The chat page was up 67 to 69 seconds after the first cell started, in three runs on
+#   a Colab v5e-1 on 2026-11-21. On 2026-11-17 the whole notebook ran in 901 s, about 15 minutes; the
 #   llama.cpp section is a third of that.
-# * **Context.** Prompt plus answer can be up to 32,768 tokens; section 3.7 times prompts up to
-#   16,000 tokens.
+# * **Context.** From code, a prompt can be up to 30,720 tokens and an answer up to 2,048; section 3.7
+#   times prompts up to 16,000 tokens. The chat page keeps the last 2,048 tokens of a conversation.
 # * **Safety.** Nothing is uploaded. The servers listen on `127.0.0.1` inside the Colab VM.

@@ -28,15 +28,6 @@ if OPENAI_INSTALL is not None and OPENAI_INSTALL.wait() != 0:
     raise RuntimeError(f"pip install openai failed:\n{(WORK / 'prep.log').read_text()[-2000:]}")
 from openai import OpenAI
 
-t0 = time.perf_counter()
-if WARM_THREAD.is_alive():
-    print("waiting for the background compiles to finish, so no timing below includes one ...", flush=True)
-WARM_THREAD.join()
-STAGES["chat shapes compiled"] = time.perf_counter() - T_START
-print(f"background compiles (waited {time.perf_counter() - t0:.0f} s for them here):")
-for bucket, budget, secs in WARM_LOG:
-    print(f"  prompt bucket {bucket:4d}, answer budget {budget:4d}: {secs:5.1f} s")
-
 client = OpenAI(base_url=BASE_URL, api_key="not-needed")
 MODEL = client.models.list().data[0].id
 RESULTS = []  # one row per sample, for the summary

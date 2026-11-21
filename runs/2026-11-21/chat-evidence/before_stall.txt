@@ -1,0 +1,7 @@
+READY: model served and chat page up 48 s after the first cell started
+chat starts 49 s after the first cell
+turn 1: prompt 18 tok -> bucket 64, 114 tok out, 27.9 s, new shape False, 77 s after the first cell
+turn 2: prompt 153 tok -> bucket 256, 117 tok out, 30.6 s, new shape False, 107 s after the first cell
+turn 3: prompt 287 tok -> bucket 512, 19 tok out, 47.8 s, new shape False, 155 s after the first cell
+turn 4: prompt 325 tok -> bucket 512, 221 tok out, 62.8 s, new shape False, 218 s after the first cell
+background compiles so far: [(128, 2048, 26.1), (256, 2048, 29.5), (512, 2048, 47.5), (1024, 2048, 60.8)]
