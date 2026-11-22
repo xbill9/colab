@@ -10,7 +10,8 @@
 # ## 3. Use it
 #
 # Type into the chat page above. Its side panel turns thinking on and off and shows each reply's speed,
-# measured in the browser and by `llama-server`. From code, any OpenAI client works against
+# measured in the browser and by `llama-server`. Replies stop at 2,048 tokens; a chat longer than the
+# context minus one reply (6,144 tokens) leaves out its oldest turns, and the page says how many. From code, any OpenAI client works against
 # `http://127.0.0.1:8000/v1` inside this runtime.
 #
 # When you are done, disconnect the runtime (Runtime, then Disconnect and delete runtime) so it stops

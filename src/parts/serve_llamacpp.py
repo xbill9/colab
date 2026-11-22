@@ -37,6 +37,10 @@ MODEL_REV = "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
 RELEASE = "ggml-tpu-98107ca-llama.cpp-7182ef71e-linux-x86_64"
 RELEASE_URL = f"https://github.com/xbill9/ggml-tpu/releases/download/v0.2.0/{RELEASE}.tar.gz"
 RELEASE_SHA256 = "76c9a4248c6e7ec933915c68e1f4a0e3bdeb5bd43cbb37a8820fdd34801489fb"
+# The chat page from a later ggml-tpu commit, locked down for workshops: it passes only chat requests,
+# fixes replies at 2,048 tokens, and leaves out the oldest turns of a chat too long for the context.
+CHAT_UI_URL = "https://raw.githubusercontent.com/xbill9/ggml-tpu/240b905777e72bb4dc2b074474b0754cd5dad5c3/ui/chat_ui.py"
+CHAT_UI_SHA256 = "9717ae7015995265daecf88fb9142b81f4d23e013c0b3858302aee5fee4247fe"
 
 DOWNLOAD = """
 import sys
@@ -57,6 +61,10 @@ if hashlib.sha256(tarball.read_bytes()).hexdigest() != RELEASE_SHA256:
 with tarfile.open(tarball) as tf:
     tf.extractall(WORK, filter="data")
 BIN = WORK / RELEASE
+chat_ui = urllib.request.urlopen(CHAT_UI_URL, timeout=60).read()
+if hashlib.sha256(chat_ui).hexdigest() != CHAT_UI_SHA256:
+    raise RuntimeError("chat_ui.py: SHA-256 does not match ggml-tpu 240b905")
+(BIN / "chat_ui.py").write_bytes(chat_ui)
 print((BIN / "VERSION").read_text())
 
 # libtpu ships with JAX on Colab TPU runtimes; install it only if it is missing
@@ -144,6 +152,8 @@ server = subprocess.Popen(
         "--parallel",
         "1",
         "--metrics",
+        # llama-server's own web UI is off; the chat page below is the only one
+        "--no-webui",
         "--jinja",
         "--alias",
         "gemma-4-E2B-it-q4_0-exact",
