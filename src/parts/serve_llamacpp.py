@@ -34,13 +34,9 @@ WORK.mkdir(parents=True, exist_ok=True)
 MODEL_REPO = "xbill9/gemma-4-E2B-it-qat-q4_0-exact-gguf"
 MODEL_FILE = "gemma-4-E2B-it-q4_0-exact.gguf"
 MODEL_REV = "74b2c92c8f7f84d3d9c39e8026f6a28f62788255"
-RELEASE = "ggml-tpu-a4a425d-llama.cpp-7182ef71e-linux-x86_64"
-RELEASE_URL = f"https://github.com/xbill9/ggml-tpu/releases/download/v0.1.0/{RELEASE}.tar.gz"
-RELEASE_SHA256 = "400e2a629c28a5f262a185de09458b56ab0c19147bcd3232a4ab3aa81eea1beb"
-# The chat page from a later ggml-tpu commit: one Thinking switch and fixed 2,048-token replies, and a
-# reply that runs out while reasoning says so instead of showing a blank answer.
-CHAT_UI_URL = "https://raw.githubusercontent.com/xbill9/ggml-tpu/9829844f980832853fa6365b716d9335fa1adff1/ui/chat_ui.py"
-CHAT_UI_SHA256 = "a9b6dd3b6fb6775429995ec2be3e72958b60219e45abf7ba735a8059a83d3742"
+RELEASE = "ggml-tpu-98107ca-llama.cpp-7182ef71e-linux-x86_64"
+RELEASE_URL = f"https://github.com/xbill9/ggml-tpu/releases/download/v0.2.0/{RELEASE}.tar.gz"
+RELEASE_SHA256 = "76c9a4248c6e7ec933915c68e1f4a0e3bdeb5bd43cbb37a8820fdd34801489fb"
 
 DOWNLOAD = """
 import sys
@@ -61,10 +57,6 @@ if hashlib.sha256(tarball.read_bytes()).hexdigest() != RELEASE_SHA256:
 with tarfile.open(tarball) as tf:
     tf.extractall(WORK, filter="data")
 BIN = WORK / RELEASE
-chat_ui = urllib.request.urlopen(CHAT_UI_URL, timeout=60).read()
-if hashlib.sha256(chat_ui).hexdigest() != CHAT_UI_SHA256:
-    raise RuntimeError("chat_ui.py: SHA-256 does not match ggml-tpu 9829844")
-(BIN / "chat_ui.py").write_bytes(chat_ui)
 print((BIN / "VERSION").read_text())
 
 # libtpu ships with JAX on Colab TPU runtimes; install it only if it is missing
@@ -92,8 +84,7 @@ print(f"\ncell 1 done {time.perf_counter() - T_START:.0f} s after it started; th
 # ## 2. Serve
 #
 # This cell waits for the model, starts `llama-server` on the TPU (device `TPU0`), then the chat page.
-# `llama-server` is ready once the weights are on the chip; the first reply then waits for XLA to
-# compile.
+# `llama-server` is ready once the weights are on the chip and its one program is compiled.
 
 # %%
 # Cell 2: llama-server on the TPU, then the chat page
@@ -127,6 +118,8 @@ env = dict(
     GGML_BACKEND_PATH=str(BIN / "libggml-tpu.so"),
     GGML_TPU_LIBTPU=LIBTPU,
     GGML_TPU_PRECISION="DEFAULT",
+    # every request attends the whole 8,192-token context, so the graph never changes shape
+    LLAMA_KV_FULL="1",
 )
 server = subprocess.Popen(
     [
@@ -139,6 +132,9 @@ server = subprocess.Popen(
         "99",
         "-fa",
         "off",
+        # one token per step for prompts too: with LLAMA_KV_FULL, one program serves every request
+        "-ub",
+        "1",
         "-c",
         "8192",
         "--host",

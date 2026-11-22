@@ -34,4 +34,3 @@ timings = reply["timings"]
 print(
     f"\n{timings['predicted_n']} tokens in {time.perf_counter() - t0:.1f} s; the server decoded at {timings['predicted_per_second']:.1f} tokens/s"
 )
-print("the first request at a new length includes an XLA compile; run this cell again to see the compiled speed")
